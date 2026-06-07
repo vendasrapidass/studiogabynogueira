@@ -764,7 +764,7 @@ const AdminPanel = () => {
                     </div>
 
                     {!blockAllDay && (
-                      <div className="grid grid-cols-2 gap-4 animate-in slide-in-from-top-2 duration-200">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 animate-in slide-in-from-top-2 duration-200">
                         <div>
                           <label className="text-xs font-medium text-muted-foreground uppercase tracking-widest mb-2 block">Horário de Início</label>
                           <input
