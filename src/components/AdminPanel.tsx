@@ -51,10 +51,12 @@ const AdminPanel = () => {
     const localBlocks = getBlocks();
     setBlocks(localBlocks);
 
-    // Sync blocks from GAS if available to ensure dashboard lists it correctly across devices
+    // Sync from Google Apps Script if available
     const google = (window as any).google;
     if (google?.script?.run) {
       const run = google.script.run;
+      
+      // Sync blocks
       const getBlocksFunc = run.getBlocks ? 'getBlocks' : (run.getScheduleBlocks ? 'getScheduleBlocks' : null);
       if (getBlocksFunc) {
         run.withSuccessHandler((gasBlocks: ScheduleBlock[]) => {
@@ -67,6 +69,26 @@ const AdminPanel = () => {
           console.error("Error loading blocks from GAS:", err);
         })
         [getBlocksFunc]();
+      }
+
+      // Sync bookings
+      if (run.getBookings) {
+        run.withSuccessHandler((gasBookings: Booking[]) => {
+          if (Array.isArray(gasBookings)) {
+            const activeBookings = gasBookings.filter(b => b.status !== 'completed');
+            const completedBookings = gasBookings.filter(b => b.status === 'completed');
+            
+            saveBookings(activeBookings);
+            saveCompleted(completedBookings);
+            
+            setBookings(activeBookings);
+            setCompleted(completedBookings);
+          }
+        })
+        .withFailureHandler((err: any) => {
+          console.error("Error loading bookings from GAS:", err);
+        })
+        .getBookings();
       }
     }
   };
@@ -81,10 +103,24 @@ const AdminPanel = () => {
       window.open(generateWhatsAppUrl(booking.phone, msg), '_blank');
     }
 
-    // Update status to accepted
+    // Update status locally for instant feedback
     const updated = bookings.map(b => b.id === booking.id ? { ...b, status: 'accepted' as const } : b);
     saveBookings(updated);
     setBookings(updated);
+
+    // Sync status update to GAS
+    const google = (window as any).google;
+    if (google?.script?.run && google.script.run.updateBookingStatus) {
+      google.script.run
+        .withSuccessHandler(() => {
+          console.log("Booking status updated to accepted in GAS");
+          reload();
+        })
+        .withFailureHandler((err: any) => {
+          console.error("Error updating booking status in GAS:", err);
+        })
+        .updateBookingStatus(booking.id, 'accepted');
+    }
   };
 
   // Finalize → move to completed, free time slot
@@ -94,6 +130,20 @@ const AdminPanel = () => {
     saveBookings(updated);
     setBookings(updated);
     setCompleted(getCompleted());
+
+    // Sync status update to GAS
+    const google = (window as any).google;
+    if (google?.script?.run && google.script.run.updateBookingStatus) {
+      google.script.run
+        .withSuccessHandler(() => {
+          console.log("Booking status updated to completed in GAS");
+          reload();
+        })
+        .withFailureHandler((err: any) => {
+          console.error("Error updating booking status in GAS:", err);
+        })
+        .updateBookingStatus(booking.id, 'completed');
+    }
   };
 
   // Refuse → send WhatsApp with reason, remove from bookings
@@ -108,6 +158,20 @@ const AdminPanel = () => {
     saveBookings(updated);
     setBookings(updated);
     setRefusingId(null);
+
+    // Sync cancellation/deletion to GAS
+    const google = (window as any).google;
+    if (google?.script?.run && google.script.run.removeBooking) {
+      google.script.run
+        .withSuccessHandler(() => {
+          console.log("Booking deleted from GAS");
+          reload();
+        })
+        .withFailureHandler((err: any) => {
+          console.error("Error deleting booking from GAS:", err);
+        })
+        .removeBooking(booking.id);
+    }
   };
 
   // Delete completed service
@@ -159,7 +223,27 @@ const AdminPanel = () => {
       status: 'pending',
     };
 
+    // Immediate local feedback
     addBooking(booking);
+    
+    // Find service duration
+    const svc = SERVICES.find(s => s.name === manualService);
+    const duration = svc ? svc.time : 180;
+
+    // Sync manual booking to GAS
+    const google = (window as any).google;
+    if (google?.script?.run && google.script.run.addBooking) {
+      google.script.run
+        .withSuccessHandler(() => {
+          console.log("Manual booking synced to GAS");
+          reload();
+        })
+        .withFailureHandler((err: any) => {
+          console.error("Error syncing manual booking to GAS:", err);
+        })
+        .addBooking(booking, duration);
+    }
+
     reload();
     setManualService('');
     setManualPrice('');

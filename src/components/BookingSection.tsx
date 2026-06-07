@@ -20,6 +20,7 @@ const BookingSection = () => {
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [showSuccess, setShowSuccess] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const totalDuration = useMemo(() => {
     if (!selectedService) return 0;
@@ -235,19 +236,39 @@ const BookingSection = () => {
       status: 'pending' as const,
     };
 
-    addBooking(booking);
+    setIsSubmitting(true);
 
-    const msg = `✨ *STUDIO GABY NOGUEIRA* ✨\n\nOlá! 🌸\n\nMeu nome é *${booking.name}*.\nGostaria de confirmar meu agendamento:\n\n📋 *Serviço:* ${booking.service}\n💰 *Valor:* R$ ${booking.price},00\n📅 *Data:* ${booking.date}\n🕐 *Horário:* ${booking.time}\n📱 *Meu WhatsApp:* ${booking.phone}\n\n⏳ Aguardo sua confirmação!\nObrigado! 💕`;
-    window.location.href = generateWhatsAppUrl(WHATSAPP_NUMBER, msg);
+    const finishBooking = () => {
+      addBooking(booking);
+      const msg = `✨ *STUDIO GABY NOGUEIRA* ✨\n\nOlá! 🌸\n\nMeu nome é *${booking.name}*.\nGostaria de confirmar meu agendamento:\n\n📋 *Serviço:* ${booking.service}\n💰 *Valor:* R$ ${booking.price},00\n📅 *Data:* ${booking.date}\n🕐 *Horário:* ${booking.time}\n📱 *Meu WhatsApp:* ${booking.phone}\n\n⏳ Aguardo sua confirmação!\nObrigado! 💕`;
+      window.location.href = generateWhatsAppUrl(WHATSAPP_NUMBER, msg);
 
-    setShowSuccess(true);
-    setStep(1);
-    setSelectedService(null);
-    setExtras([]);
-    setSelectedDate(undefined);
-    setSelectedTime('');
-    setName('');
-    setPhone('');
+      setIsSubmitting(false);
+      setShowSuccess(true);
+      setStep(1);
+      setSelectedService(null);
+      setExtras([]);
+      setSelectedDate(undefined);
+      setSelectedTime('');
+      setName('');
+      setPhone('');
+    };
+
+    const google = (window as any).google;
+    if (google?.script?.run) {
+      google.script.run
+        .withSuccessHandler(() => {
+          console.log("Booking synced to GAS");
+          finishBooking();
+        })
+        .withFailureHandler((err: any) => {
+          console.error("Error syncing booking to GAS:", err);
+          finishBooking(); // Proceed with fallback even if GAS fails to ensure user experience
+        })
+        .addBooking(booking, totalDuration);
+    } else {
+      finishBooking();
+    }
   };
 
   const goBack = () => {
@@ -432,6 +453,26 @@ const BookingSection = () => {
           </AnimatePresence>
         </div>
       </section>
+
+      {/* Loading Overlay */}
+      <AnimatePresence>
+        {isSubmitting && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-background/80 backdrop-blur-sm"
+          >
+            <div className="bg-card p-8 rounded-3xl card-shadow w-full max-w-sm border border-border text-center flex flex-col items-center gap-4">
+              <div className="w-12 h-12 rounded-full border-4 border-primary/20 border-t-primary animate-spin" />
+              <h3 className="text-lg font-bold">Salvando seu Horário...</h3>
+              <p className="text-muted-foreground text-sm">
+                Estamos registrando seu agendamento na nossa agenda e preparando sua mensagem do WhatsApp.
+              </p>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Success Popup */}
       <AnimatePresence>
