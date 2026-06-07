@@ -49,11 +49,25 @@ export default async function handler(req: any, res: any) {
         if (!event.id) continue;
 
         const shared = event.extendedProperties?.shared;
+        const summary = event.summary || '';
+        const summaryLower = summary.toLowerCase();
+
+        // 1. Correção de Bloqueios (Blocks)
+        // Se o summary contiver "Folga", "Bloqueado", "Bloqueio", "Indisponível"
+        // OU não possuir um formato de agendamento (não contém " - "), é considerado um block.
+        const hasBlockKeyword = summaryLower.includes('folga') || 
+                                summaryLower.includes('bloqueado') || 
+                                summaryLower.includes('bloqueio') ||
+                                summaryLower.includes('indisponível') ||
+                                summaryLower.includes('indisponivel');
         
-        // Critério para identificar bloqueio: tipo definido nos metadados ou título indicativo
-        const isBlock = shared?.type === 'block' || 
-          event.summary?.startsWith('Bloqueio') || 
-          event.summary?.startsWith('AGENDA BLOQUEADA');
+        const hasDashSeparator = summary.includes(' - ');
+        const isBlock = shared?.type === 'block' || hasBlockKeyword || !hasDashSeparator;
+
+        // Determina se o evento já passou
+        const endStr = event.end?.dateTime || event.end?.date;
+        const endDate = endStr ? new Date(endStr) : new Date();
+        const isPast = endDate.getTime() < now.getTime();
 
         if (isBlock) {
           const allDay = shared?.allDay === 'true' || !!event.start?.date;
@@ -61,7 +75,6 @@ export default async function handler(req: any, res: any) {
           let endVal: string | undefined;
 
           if (!allDay && event.start?.dateTime && event.end?.dateTime) {
-            // dateTime é no formato YYYY-MM-DDTHH:MM:SSZ ou offset, extraímos HH:MM
             const startTimePart = event.start.dateTime.split('T')[1];
             const endTimePart = event.end.dateTime.split('T')[1];
             if (startTimePart && endTimePart) {
@@ -76,6 +89,11 @@ export default async function handler(req: any, res: any) {
             const [y, m, d] = startString.split('T')[0].split('-');
             dateVal = `${d}/${m}/${y}`;
           }
+          if (!dateVal) {
+            const dObj = new Date();
+            const pad = (n: number) => String(n).padStart(2, '0');
+            dateVal = `${pad(dObj.getDate())}/${pad(dObj.getMonth() + 1)}/${dObj.getFullYear()}`;
+          }
 
           blocks.push({
             id: shared?.id || event.id,
@@ -83,7 +101,7 @@ export default async function handler(req: any, res: any) {
             allDay,
             start: shared?.start || startVal,
             end: shared?.end || endVal,
-            reason: shared?.reason || event.summary?.replace(/^(Bloqueio - |AGENDA BLOQUEADA - )/, '') || 'Bloqueio',
+            reason: shared?.reason || summary.replace(/^(Bloqueio - |AGENDA BLOQUEADA - )/i, '') || 'Bloqueio',
           });
         } else {
           // É um agendamento (Booking)
@@ -93,15 +111,12 @@ export default async function handler(req: any, res: any) {
           let price = 0;
           let status = 'accepted';
 
+          // Extração do Serviço e Nome
           if (shared) {
             service = shared.service || '';
             name = shared.name || '';
             phone = shared.phone || '';
-            price = Number(shared.price) || 0;
-            status = shared.status || 'accepted';
           } else {
-            // Parser fallback para eventos manuais criados na Google Agenda
-            const summary = event.summary || '';
             const parts = summary.split(' - ');
             if (parts.length >= 2) {
               service = parts.slice(0, -1).join(' - ').trim();
@@ -109,33 +124,89 @@ export default async function handler(req: any, res: any) {
             } else {
               service = summary;
             }
+          }
 
+          // 2. Extração Inteligente de Preço (Fallback)
+          if (shared?.price) {
+            price = Number(shared.price);
+          } else {
+            // Tenta descrição
             const desc = event.description || '';
-            const nameMatch = desc.match(/Cliente:\s*(.*)/);
-            const phoneMatch = desc.match(/Contato:\s*(.*)/);
-            const priceMatch = desc.match(/Valor:\s*R\$\s*(\d+)/);
-            const statusMatch = desc.match(/Status:\s*(.*)/);
+            const priceDescMatch = desc.match(/Valor:\s*R\$\s*(\d+)/i) || desc.match(/Valor:\s*(\d+)/i);
+            if (priceDescMatch) {
+              price = Number(priceDescMatch[1]);
+            } else {
+              // Tenta Regex no título: "R$ 85,00" ou similar
+              const rsMatch = summary.match(/R\$\s*(\d+)(?:[.,]\d+)?/i);
+              if (rsMatch) {
+                price = Number(rsMatch[1]);
+              } else {
+                // Standalone number
+                const numMatch = summary.match(/\b(\d+)\b/);
+                if (numMatch) {
+                  price = Number(numMatch[1]);
+                }
+              }
+            }
 
-            if (nameMatch) name = nameMatch[1].trim();
-            if (phoneMatch) phone = phoneMatch[1].trim();
-            if (priceMatch) price = Number(priceMatch[1]);
-            
+            // Standalone fallback: baseado no serviço conhecido
+            if (price === 0 && service) {
+              const cleanSvc = service.toLowerCase().trim();
+              if (cleanSvc.includes('alongamento')) price = 135;
+              else if (cleanSvc.includes('manutenção') || cleanSvc.includes('manutencao')) price = 95;
+              else if (cleanSvc.includes('banho de gel')) price = 85;
+              else if (cleanSvc.includes('esmaltação') || cleanSvc.includes('esmaltacao')) price = 60;
+              else if (cleanSvc.includes('remoção') || cleanSvc.includes('remocao')) price = 20;
+              else if (cleanSvc.includes('efeito molhado')) price = 125;
+              else if (cleanSvc.includes('volume brasileiro')) price = 135;
+              else if (cleanSvc.includes('volume egípcio') || cleanSvc.includes('volume egipcio')) price = 140;
+              else if (cleanSvc.includes('sirena')) price = 135;
+              else if (cleanSvc.includes('fox')) price = 150;
+              else if (cleanSvc.includes('volume inglês') || cleanSvc.includes('volume ingles')) price = 155;
+              else if (cleanSvc.includes('volume luxo')) price = 160;
+            }
+          }
+
+          // 3. Automação de Status para Eventos Passados
+          if (isPast) {
+            status = 'completed';
+          } else if (shared?.status) {
+            status = shared.status;
+          } else {
+            // Parser manual de status para futuros
+            const desc = event.description || '';
+            const statusMatch = desc.match(/Status:\s*(.*)/i);
             if (statusMatch) {
               status = statusMatch[1].trim();
             } else if (summary.includes('[Confirmado]')) {
               status = 'accepted';
             } else if (summary.includes('[Concluído]')) {
               status = 'completed';
+            } else {
+              status = 'accepted';
             }
           }
 
+          // 4. Correção de Datas Vazias
           let dateVal = '';
           let timeVal = '';
-          if (event.start?.dateTime) {
-            const [dStr, tStr] = event.start.dateTime.split('T');
+          
+          const startString = event.start?.dateTime || event.start?.date;
+          if (startString) {
+            const [dStr, tStr] = startString.split('T');
             const [y, m, d] = dStr.split('-');
             dateVal = `${d}/${m}/${y}`;
-            timeVal = tStr.substring(0, 5);
+            if (tStr) {
+              timeVal = tStr.substring(0, 5);
+            } else {
+              timeVal = '08:00';
+            }
+          }
+
+          if (!dateVal) {
+            const dObj = new Date();
+            const pad = (n: number) => String(n).padStart(2, '0');
+            dateVal = `${pad(dObj.getDate())}/${pad(dObj.getMonth() + 1)}/${dObj.getFullYear()}`;
           }
 
           bookings.push({

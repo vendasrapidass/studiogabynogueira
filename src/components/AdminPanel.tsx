@@ -16,6 +16,7 @@ const AdminPanel = () => {
   const [completed, setCompleted] = useState<Booking[]>([]);
   const [refusingId, setRefusingId] = useState<string | null>(null);
   const [filter, setFilter] = useState<FilterType>('month');
+  const [subFilter, setSubFilter] = useState<'all' | 'pending' | 'accepted' | 'completed' | 'blocks'>('all');
 
   // Edit state
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -373,28 +374,49 @@ const AdminPanel = () => {
       | { type: 'block'; id: string; timestamp: number; raw: ScheduleBlock }
     > = [];
 
-    bookings.forEach(b => {
-      const [d, m, y] = b.date.split('/').map(Number);
-      const [hour, min] = b.time.split(':').map(Number);
-      const timestamp = new Date(y, m - 1, d, hour, min).getTime();
-      agendaItems.push({ type: 'booking', id: b.id, timestamp, raw: b });
-    });
+    // Se o filtro for concluído, lê da lista de concluídos, senão da de agendados
+    const listBookings = subFilter === 'completed' ? completed : bookings;
 
-    blocks.forEach(bl => {
-      const [d, m, y] = bl.date.split('/').map(Number);
-      let hour = 0;
-      let min = 0;
-      if (!bl.allDay && bl.start) {
-        const [h, mi] = bl.start.split(':').map(Number);
-        hour = h;
-        min = mi;
+    listBookings.forEach(b => {
+      if (subFilter !== 'all' && subFilter !== 'completed' && b.status !== subFilter) {
+        return;
       }
-      const timestamp = new Date(y, m - 1, d, hour, min).getTime();
-      agendaItems.push({ type: 'block', id: bl.id, timestamp, raw: bl });
+      try {
+        const [d, m, y] = b.date.split('/').map(Number);
+        const [hour, min] = (b.time || '00:00').split(':').map(Number);
+        const timestamp = new Date(y, m - 1, d, hour, min).getTime() || 0;
+        agendaItems.push({ type: 'booking', id: b.id, timestamp, raw: b });
+      } catch (err) {
+        agendaItems.push({ type: 'booking', id: b.id, timestamp: 0, raw: b });
+      }
     });
 
+    if (subFilter === 'all' || subFilter === 'blocks') {
+      blocks.forEach(bl => {
+        try {
+          const [d, m, y] = bl.date.split('/').map(Number);
+          let hour = 0;
+          let min = 0;
+          if (!bl.allDay && bl.start) {
+            const [h, mi] = bl.start.split(':').map(Number);
+            hour = h;
+            min = mi;
+          }
+          const timestamp = new Date(y, m - 1, d, hour, min).getTime() || 0;
+          agendaItems.push({ type: 'block', id: bl.id, timestamp, raw: bl });
+        } catch (err) {
+          agendaItems.push({ type: 'block', id: bl.id, timestamp: 0, raw: bl });
+        }
+      });
+    }
+
+    // Ordenação do Dashboard: Concluídos mostram os mais recentes no topo (descendente),
+    // agendamentos futuros mostram os mais próximos no topo (crescente)
+    if (subFilter === 'completed') {
+      return agendaItems.sort((a, b) => b.timestamp - a.timestamp);
+    }
     return agendaItems.sort((a, b) => a.timestamp - b.timestamp);
-  }, [bookings, blocks]);
+  }, [bookings, blocks, completed, subFilter]);
 
   const tabs: { key: TabType; label: string; icon: React.ReactNode; badge?: number }[] = [
     { key: 'bookings', label: 'Agendamentos', icon: <CalendarDays className="w-4 h-4" />, badge: bookings.length + blocks.length },
@@ -454,22 +476,44 @@ const AdminPanel = () => {
                 </div>
               )}
 
-              {/* Summary */}
-              {bookings.length > 0 && (
-                <div className="flex gap-3 mb-2">
-                  <span className="text-xs bg-amber-500/10 text-amber-400 px-3 py-1.5 rounded-full font-medium">
-                    ⏳ {pendingCount} pendente{pendingCount !== 1 ? 's' : ''}
-                  </span>
-                  <span className="text-xs bg-emerald-500/10 text-emerald-400 px-3 py-1.5 rounded-full font-medium">
-                    ✅ {acceptedCount} aceito{acceptedCount !== 1 ? 's' : ''}
-                  </span>
-                </div>
-              )}
+              {/* Sub-tabs de Filtragem */}
+              <div className="flex gap-2 flex-wrap pb-3 border-b border-primary/5">
+                {([
+                  { key: 'all', label: 'Todos', count: bookings.length + blocks.length },
+                  { key: 'pending', label: 'Pendentes', count: pendingCount, color: 'text-amber-400' },
+                  { key: 'accepted', label: 'Aceitos', count: acceptedCount, color: 'text-emerald-400' },
+                  { key: 'completed', label: 'Concluídos', count: completed.length, color: 'text-primary' },
+                  { key: 'blocks', label: 'Bloqueios', count: blocks.length, color: 'text-destructive' }
+                ] as const).map(sf => (
+                  <button
+                    key={sf.key}
+                    onClick={() => setSubFilter(sf.key)}
+                    className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold border transition-all ${
+                      subFilter === sf.key
+                        ? 'bg-primary text-primary-foreground border-primary shadow-[0_0_15px_-3px_hsl(6_48%_68%/0.3)]'
+                        : 'bg-card/40 text-muted-foreground hover:text-foreground border-primary/10'
+                    }`}
+                  >
+                    <span className={subFilter === sf.key ? 'text-primary-foreground' : sf.color}>{sf.label}</span>
+                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
+                      subFilter === sf.key ? 'bg-primary-foreground/20 text-primary-foreground' : 'bg-secondary text-muted-foreground'
+                    }`}>
+                      {sf.count}
+                    </span>
+                  </button>
+                ))}
+              </div>
 
               {unifiedAgenda.length === 0 && (
                 <div className="text-center py-16">
                   <CalendarDays className="w-12 h-12 text-muted-foreground/30 mx-auto mb-4" />
-                  <p className="text-muted-foreground">Nenhum agendamento pendente ou bloqueio ativo</p>
+                  <p className="text-muted-foreground">
+                    {subFilter === 'all' && 'Nenhum agendamento pendente ou bloqueio ativo'}
+                    {subFilter === 'pending' && 'Nenhum agendamento pendente/aguardando'}
+                    {subFilter === 'accepted' && 'Nenhum agendamento aceito'}
+                    {subFilter === 'completed' && 'Nenhum agendamento concluído no histórico'}
+                    {subFilter === 'blocks' && 'Nenhum horário bloqueado'}
+                  </p>
                 </div>
               )}
 
@@ -478,12 +522,16 @@ const AdminPanel = () => {
                   const a = item.raw;
                   return (
                     <div key={a.id} className={`p-5 md:p-6 bg-card/60 backdrop-blur-sm rounded-2xl border transition-all ${
+                      a.status === 'completed' ? 'border-primary/10 opacity-70 bg-secondary/5' :
                       a.status === 'accepted' ? 'border-emerald-500/30 bg-emerald-500/5' : 'border-primary/10 hover:border-primary/20'
                     }`}>
                       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                         <div className="space-y-1">
                           <div className="flex items-center gap-2">
                             <p className="font-bold text-lg text-foreground">{a.name}</p>
+                            {a.status === 'completed' && (
+                              <span className="text-[10px] bg-primary/20 text-primary px-2 py-0.5 rounded-full font-bold uppercase tracking-wider">Concluído</span>
+                            )}
                             {a.status === 'accepted' && (
                               <span className="text-[10px] bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded-full font-bold uppercase tracking-wider">Pendente</span>
                             )}
@@ -503,7 +551,18 @@ const AdminPanel = () => {
                           <p className="text-lg font-mono font-bold text-primary mt-1">R$ {a.price},00</p>
                         </div>
                         <div className="flex gap-2 flex-shrink-0">
-                          {a.status === 'accepted' ? (
+                          {a.status === 'completed' ? (
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs bg-primary/10 text-primary px-3 py-1.5 rounded-full font-bold uppercase tracking-wider">✓ Concluído</span>
+                              <button
+                                onClick={() => handleDeleteCompleted(a.id)}
+                                className="px-3 py-2 bg-destructive/10 hover:bg-destructive/20 text-destructive border border-destructive/20 rounded-xl text-xs font-bold transition-all hover:scale-105 active:scale-95 flex items-center gap-1.5"
+                                title="Remover do histórico"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          ) : a.status === 'accepted' ? (
                             <button
                               onClick={() => handleFinalize(a)}
                               className="px-5 py-2.5 bg-primary text-primary-foreground rounded-xl text-sm font-bold transition-all hover:shadow-[0_0_20px_-5px_hsl(6_48%_68%/0.4)] hover:scale-105 active:scale-95 flex items-center gap-2"
