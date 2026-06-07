@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
-import { SERVICES, isDayAllowed, getTimesForDate, WHATSAPP_NUMBER, generateWhatsAppUrl, formatPhone, getBookingDuration } from '@/lib/types';
+import { SERVICES, isDayAllowed, getTimesForDate, WHATSAPP_NUMBER, generateWhatsAppUrl, formatPhone, getBookingDuration, ScheduleBlock } from '@/lib/types';
 import { addBooking, getBookings, getBlocks } from '@/lib/bookingStore';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Calendar } from '@/components/ui/calendar';
@@ -27,6 +27,27 @@ const BookingSection = () => {
   }, [selectedService, extras]);
 
   const [availableTimes, setAvailableTimes] = useState<string[]>([]);
+  const [gasBlocks, setGasBlocks] = useState<ScheduleBlock[]>([]);
+
+  // Load schedule blocks from GAS on mount to ensure availability rules are impeccable across devices
+  useEffect(() => {
+    const google = (window as any).google;
+    if (google?.script?.run) {
+      const run = google.script.run;
+      const getBlocksFunc = run.getBlocks ? 'getBlocks' : (run.getScheduleBlocks ? 'getScheduleBlocks' : null);
+      if (getBlocksFunc) {
+        run.withSuccessHandler((blocks: ScheduleBlock[]) => {
+          if (Array.isArray(blocks)) {
+            setGasBlocks(blocks);
+          }
+        })
+        .withFailureHandler((err: any) => {
+          console.error("Error loading blocks from GAS:", err);
+        })
+        [getBlocksFunc]();
+      }
+    }
+  }, []);
 
   useEffect(() => {
     if (!selectedDate || !selectedService) {
@@ -39,7 +60,7 @@ const BookingSection = () => {
 
     const calculateLocalSlots = () => {
       const bookings = getBookings().filter((b) => b.date === dateStr && b.status !== 'completed');
-      const blocks = getBlocks().filter((block) => block.date === dateStr);
+      const blocks = [...getBlocks(), ...gasBlocks].filter((block) => block.date === dateStr);
 
       const timeToMinutes = (t: string) => {
         const [h, m] = t.split(':').map(Number);
@@ -107,7 +128,28 @@ const BookingSection = () => {
       google.script.run
         .withSuccessHandler((slots: string[]) => {
           if (Array.isArray(slots)) {
-            setAvailableTimes(slots);
+            const blocks = [...getBlocks(), ...gasBlocks].filter((block) => block.date === dateStr);
+            const timeToMinutes = (t: string) => {
+              const [h, m] = t.split(':').map(Number);
+              return h * 60 + m;
+            };
+            const filteredSlots = slots.filter((timeStr) => {
+              const start = timeToMinutes(timeStr);
+              const end = start + totalDuration;
+
+              const hasBlockOverlap = blocks.some((block) => {
+                if (block.allDay) return true;
+                if (!block.start || !block.end) return false;
+                
+                const blockStart = timeToMinutes(block.start);
+                const blockEnd = timeToMinutes(block.end);
+                
+                return Math.max(start, blockStart) < Math.min(end, blockEnd);
+              });
+
+              return !hasBlockOverlap;
+            });
+            setAvailableTimes(filteredSlots);
           } else {
             setAvailableTimes(localSlots);
           }
@@ -120,7 +162,7 @@ const BookingSection = () => {
     } else {
       setAvailableTimes(localSlots);
     }
-  }, [selectedDate, selectedService, extras, totalDuration]);
+  }, [selectedDate, selectedService, extras, totalDuration, gasBlocks]);
 
   // Combined service name and price
   const combinedServiceName = useMemo(() => {

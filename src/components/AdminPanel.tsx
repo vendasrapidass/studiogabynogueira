@@ -46,7 +46,29 @@ const AdminPanel = () => {
   const reload = () => {
     setBookings(getBookings());
     setCompleted(getCompleted());
-    setBlocks(getBlocks());
+    
+    // Immediate fallback load from localStorage
+    const localBlocks = getBlocks();
+    setBlocks(localBlocks);
+
+    // Sync blocks from GAS if available to ensure dashboard lists it correctly across devices
+    const google = (window as any).google;
+    if (google?.script?.run) {
+      const run = google.script.run;
+      const getBlocksFunc = run.getBlocks ? 'getBlocks' : (run.getScheduleBlocks ? 'getScheduleBlocks' : null);
+      if (getBlocksFunc) {
+        run.withSuccessHandler((gasBlocks: ScheduleBlock[]) => {
+          if (Array.isArray(gasBlocks)) {
+            saveBlocks(gasBlocks);
+            setBlocks(gasBlocks);
+          }
+        })
+        .withFailureHandler((err: any) => {
+          console.error("Error loading blocks from GAS:", err);
+        })
+        [getBlocksFunc]();
+      }
+    }
   };
 
   useEffect(() => { reload(); }, []);
@@ -121,6 +143,11 @@ const AdminPanel = () => {
   const handleAddManualService = () => {
     if (!manualService || !manualPrice || !manualName || !manualDate || !manualTime) return;
 
+    if (manualDate.length < 10) {
+      alert("Por favor, digite a data completa no formato DD/MM/AAAA");
+      return;
+    }
+
     const booking: Booking = {
       id: crypto.randomUUID(),
       service: manualService,
@@ -148,6 +175,11 @@ const AdminPanel = () => {
   const handleSaveBlock = () => {
     if (!blockDate || (!blockAllDay && (!blockStart || !blockEnd))) return;
 
+    if (blockDate.length < 10) {
+      alert("Por favor, digite a data completa no formato DD/MM/AAAA");
+      return;
+    }
+
     const block: ScheduleBlock = {
       id: crypto.randomUUID(),
       date: blockDate,
@@ -164,6 +196,7 @@ const AdminPanel = () => {
       google.script.run
         .withSuccessHandler(() => {
           console.log("Block saved to GAS");
+          reload(); // Refresh dashboard list once confirmed by GAS backend
         })
         .withFailureHandler((err: any) => {
           console.error("Error saving block to GAS:", err);
@@ -226,8 +259,37 @@ const AdminPanel = () => {
   const pendingCount = bookings.filter(b => b.status === 'pending').length;
   const acceptedCount = bookings.filter(b => b.status === 'accepted').length;
 
+  const unifiedAgenda = useMemo(() => {
+    const agendaItems: Array<
+      | { type: 'booking'; id: string; timestamp: number; raw: Booking }
+      | { type: 'block'; id: string; timestamp: number; raw: ScheduleBlock }
+    > = [];
+
+    bookings.forEach(b => {
+      const [d, m, y] = b.date.split('/').map(Number);
+      const [hour, min] = b.time.split(':').map(Number);
+      const timestamp = new Date(y, m - 1, d, hour, min).getTime();
+      agendaItems.push({ type: 'booking', id: b.id, timestamp, raw: b });
+    });
+
+    blocks.forEach(bl => {
+      const [d, m, y] = bl.date.split('/').map(Number);
+      let hour = 0;
+      let min = 0;
+      if (!bl.allDay && bl.start) {
+        const [h, mi] = bl.start.split(':').map(Number);
+        hour = h;
+        min = mi;
+      }
+      const timestamp = new Date(y, m - 1, d, hour, min).getTime();
+      agendaItems.push({ type: 'block', id: bl.id, timestamp, raw: bl });
+    });
+
+    return agendaItems.sort((a, b) => a.timestamp - b.timestamp);
+  }, [bookings, blocks]);
+
   const tabs: { key: TabType; label: string; icon: React.ReactNode; badge?: number }[] = [
-    { key: 'bookings', label: 'Agendamentos', icon: <CalendarDays className="w-4 h-4" />, badge: bookings.length },
+    { key: 'bookings', label: 'Agendamentos', icon: <CalendarDays className="w-4 h-4" />, badge: bookings.length + blocks.length },
     { key: 'dashboard', label: 'Dashboard', icon: <TrendingUp className="w-4 h-4" /> },
     { key: 'add', label: 'Adicionar', icon: <Plus className="w-4 h-4" /> },
   ];
@@ -296,85 +358,120 @@ const AdminPanel = () => {
                 </div>
               )}
 
-              {bookings.length === 0 && (
+              {unifiedAgenda.length === 0 && (
                 <div className="text-center py-16">
                   <CalendarDays className="w-12 h-12 text-muted-foreground/30 mx-auto mb-4" />
-                  <p className="text-muted-foreground">Nenhum agendamento pendente</p>
+                  <p className="text-muted-foreground">Nenhum agendamento pendente ou bloqueio ativo</p>
                 </div>
               )}
 
-              {bookings.map(a => (
-                <div key={a.id} className={`p-5 md:p-6 bg-card/60 backdrop-blur-sm rounded-2xl border transition-all ${
-                  a.status === 'accepted' ? 'border-emerald-500/30 bg-emerald-500/5' : 'border-primary/10 hover:border-primary/20'
-                }`}>
-                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <p className="font-bold text-lg text-foreground">{a.name}</p>
-                        {a.status === 'accepted' && (
-                          <span className="text-[10px] bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded-full font-bold uppercase tracking-wider">Pendente</span>
-                        )}
-                        {a.status === 'pending' && (
-                          <span className="text-[10px] bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded-full font-bold uppercase tracking-wider">Aguardando</span>
-                        )}
+              {unifiedAgenda.map(item => {
+                if (item.type === 'booking') {
+                  const a = item.raw;
+                  return (
+                    <div key={a.id} className={`p-5 md:p-6 bg-card/60 backdrop-blur-sm rounded-2xl border transition-all ${
+                      a.status === 'accepted' ? 'border-emerald-500/30 bg-emerald-500/5' : 'border-primary/10 hover:border-primary/20'
+                    }`}>
+                      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            <p className="font-bold text-lg text-foreground">{a.name}</p>
+                            {a.status === 'accepted' && (
+                              <span className="text-[10px] bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded-full font-bold uppercase tracking-wider">Pendente</span>
+                            )}
+                            {a.status === 'pending' && (
+                              <span className="text-[10px] bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded-full font-bold uppercase tracking-wider">Aguardando</span>
+                            )}
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            <span className="inline-flex items-center gap-1.5 text-xs bg-primary/10 text-primary px-2.5 py-1 rounded-full font-medium">
+                              <Scissors className="w-3 h-3" /> {a.service}
+                            </span>
+                            <span className="inline-flex items-center gap-1.5 text-xs bg-secondary text-muted-foreground px-2.5 py-1 rounded-full">
+                              <CalendarDays className="w-3 h-3" /> {a.date} às {a.time}
+                            </span>
+                          </div>
+                          {a.phone && <p className="text-xs text-muted-foreground flex items-center gap-1"><Phone className="w-3 h-3" /> {a.phone}</p>}
+                          <p className="text-lg font-mono font-bold text-primary mt-1">R$ {a.price},00</p>
+                        </div>
+                        <div className="flex gap-2 flex-shrink-0">
+                          {a.status === 'accepted' ? (
+                            <button
+                              onClick={() => handleFinalize(a)}
+                              className="px-5 py-2.5 bg-primary text-primary-foreground rounded-xl text-sm font-bold transition-all hover:shadow-[0_0_20px_-5px_hsl(6_48%_68%/0.4)] hover:scale-105 active:scale-95 flex items-center gap-2"
+                            >
+                              <Check className="w-4 h-4" /> Finalizar
+                            </button>
+                          ) : (
+                            <>
+                              <button
+                                onClick={() => handleAccept(a)}
+                                className="px-5 py-2.5 bg-emerald-600 text-foreground rounded-xl text-sm font-bold transition-all hover:scale-105 active:scale-95"
+                              >
+                                ✅ Aceitar
+                              </button>
+                              <button
+                                onClick={() => setRefusingId(a.id)}
+                                className="px-5 py-2.5 bg-destructive/10 text-destructive border border-destructive/20 rounded-xl text-sm font-bold transition-all hover:bg-destructive hover:text-destructive-foreground hover:scale-105 active:scale-95"
+                              >
+                                ✕ Recusar
+                              </button>
+                            </>
+                          )}
+                        </div>
                       </div>
-                      <div className="flex flex-wrap gap-2">
-                        <span className="inline-flex items-center gap-1.5 text-xs bg-primary/10 text-primary px-2.5 py-1 rounded-full font-medium">
-                          <Scissors className="w-3 h-3" /> {a.service}
-                        </span>
-                        <span className="inline-flex items-center gap-1.5 text-xs bg-secondary text-muted-foreground px-2.5 py-1 rounded-full">
-                          <CalendarDays className="w-3 h-3" /> {a.date} às {a.time}
-                        </span>
-                      </div>
-                      {a.phone && <p className="text-xs text-muted-foreground flex items-center gap-1"><Phone className="w-3 h-3" /> {a.phone}</p>}
-                      <p className="text-lg font-mono font-bold text-primary mt-1">R$ {a.price},00</p>
-                    </div>
-                    <div className="flex gap-2 flex-shrink-0">
-                      {a.status === 'accepted' ? (
-                        <button
-                          onClick={() => handleFinalize(a)}
-                          className="px-5 py-2.5 bg-primary text-primary-foreground rounded-xl text-sm font-bold transition-all hover:shadow-[0_0_20px_-5px_hsl(45_97%_54%/0.4)] hover:scale-105 active:scale-95 flex items-center gap-2"
-                        >
-                          <Check className="w-4 h-4" /> Finalizar
-                        </button>
-                      ) : (
-                        <>
-                          <button
-                            onClick={() => handleAccept(a)}
-                            className="px-5 py-2.5 bg-emerald-600 text-foreground rounded-xl text-sm font-bold transition-all hover:scale-105 active:scale-95"
-                          >
-                            ✅ Aceitar
+
+                      {refusingId === a.id && (
+                        <div className="mt-4 p-4 bg-background/50 rounded-xl border border-destructive/10 space-y-2">
+                          <p className="text-sm font-medium text-foreground mb-3">Motivo da recusa:</p>
+                          {REFUSE_REASONS.map(reason => (
+                            <button
+                              key={reason}
+                              onClick={() => handleRefuse(a, reason)}
+                              className="block w-full text-left px-4 py-2.5 rounded-lg bg-card hover:bg-destructive/10 hover:text-destructive text-sm transition-all border border-transparent hover:border-destructive/20"
+                            >
+                              {reason}
+                            </button>
+                          ))}
+                          <button onClick={() => setRefusingId(null)} className="text-xs text-muted-foreground hover:text-foreground mt-2 transition-colors">
+                            Cancelar
                           </button>
-                          <button
-                            onClick={() => setRefusingId(a.id)}
-                            className="px-5 py-2.5 bg-destructive/10 text-destructive border border-destructive/20 rounded-xl text-sm font-bold transition-all hover:bg-destructive hover:text-destructive-foreground hover:scale-105 active:scale-95"
-                          >
-                            ✕ Recusar
-                          </button>
-                        </>
+                        </div>
                       )}
                     </div>
-                  </div>
-
-                  {refusingId === a.id && (
-                    <div className="mt-4 p-4 bg-background/50 rounded-xl border border-destructive/10 space-y-2">
-                      <p className="text-sm font-medium text-foreground mb-3">Motivo da recusa:</p>
-                      {REFUSE_REASONS.map(reason => (
-                        <button
-                          key={reason}
-                          onClick={() => handleRefuse(a, reason)}
-                          className="block w-full text-left px-4 py-2.5 rounded-lg bg-card hover:bg-destructive/10 hover:text-destructive text-sm transition-all border border-transparent hover:border-destructive/20"
-                        >
-                          {reason}
-                        </button>
-                      ))}
-                      <button onClick={() => setRefusingId(null)} className="text-xs text-muted-foreground hover:text-foreground mt-2 transition-colors">
-                        Cancelar
-                      </button>
+                  );
+                } else {
+                  const bl = item.raw;
+                  return (
+                    <div key={bl.id} className="p-5 md:p-6 bg-destructive/5 backdrop-blur-sm rounded-2xl border border-destructive/20 hover:border-destructive/30 transition-all animate-in fade-in duration-300">
+                      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            <p className="font-bold text-lg text-foreground">AGENDA BLOQUEADA</p>
+                            <span className="text-[10px] bg-destructive/20 text-destructive px-2 py-0.5 rounded-full font-bold uppercase tracking-wider">Bloqueio</span>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            <span className="inline-flex items-center gap-1.5 text-xs bg-primary/10 text-primary px-2.5 py-1 rounded-full font-medium">
+                              Motivo: {bl.reason}
+                            </span>
+                            <span className="inline-flex items-center gap-1.5 text-xs bg-secondary text-muted-foreground px-2.5 py-1 rounded-full">
+                              <CalendarDays className="w-3 h-3" /> {bl.date} {bl.allDay ? '(Dia Inteiro)' : `das ${bl.start} às ${bl.end}`}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="flex gap-2 flex-shrink-0">
+                          <button
+                            onClick={() => handleDeleteBlock(bl.id)}
+                            className="px-4 py-2 bg-destructive/10 hover:bg-destructive/20 text-destructive border border-destructive/20 rounded-xl text-sm font-bold transition-all hover:scale-105 active:scale-95 flex items-center gap-1.5"
+                          >
+                            <Trash2 className="w-4 h-4" /> Remover Bloqueio
+                          </button>
+                        </div>
+                      </div>
                     </div>
-                  )}
-                </div>
-              ))}
+                  );
+                }
+              })}
             </div>
           )}
 
