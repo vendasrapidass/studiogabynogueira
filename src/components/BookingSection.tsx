@@ -28,26 +28,24 @@ const BookingSection = () => {
   }, [selectedService, extras]);
 
   const [availableTimes, setAvailableTimes] = useState<string[]>([]);
-  const [gasBlocks, setGasBlocks] = useState<ScheduleBlock[]>([]);
+  const [googleBookings, setGoogleBookings] = useState<Booking[]>([]);
+  const [googleBlocks, setGoogleBlocks] = useState<ScheduleBlock[]>([]);
 
-  // Load schedule blocks from GAS on mount to ensure availability rules are impeccable across devices
+  // Load schedule events from Google Calendar API on mount to act as source of truth
   useEffect(() => {
-    const google = (window as any).google;
-    if (google?.script?.run) {
-      const run = google.script.run;
-      const getBlocksFunc = run.getBlocks ? 'getBlocks' : (run.getScheduleBlocks ? 'getScheduleBlocks' : null);
-      if (getBlocksFunc) {
-        run.withSuccessHandler((blocks: ScheduleBlock[]) => {
-          if (Array.isArray(blocks)) {
-            setGasBlocks(blocks);
-          }
-        })
-        .withFailureHandler((err: any) => {
-          console.error("Error loading blocks from GAS:", err);
-        })
-        [getBlocksFunc]();
-      }
-    }
+    fetch('/api/calendar')
+      .then((res) => res.json())
+      .then((data) => {
+        if (Array.isArray(data.bookings)) {
+          setGoogleBookings(data.bookings);
+        }
+        if (Array.isArray(data.blocks)) {
+          setGoogleBlocks(data.blocks);
+        }
+      })
+      .catch((err) => {
+        console.error("Error loading events from Google Calendar API:", err);
+      });
   }, []);
 
   useEffect(() => {
@@ -60,8 +58,26 @@ const BookingSection = () => {
     const baseTimes = getTimesForDate(selectedDate);
 
     const calculateLocalSlots = () => {
-      const bookings = getBookings().filter((b) => b.date === dateStr && b.status !== 'completed');
-      const blocks = [...getBlocks(), ...gasBlocks].filter((block) => block.date === dateStr);
+      // Mescla reservas locais e do Google Calendar para evitar duplicados e manter consistência imediata
+      const localBookings = getBookings().filter((b) => b.date === dateStr && b.status !== 'completed');
+      const apiBookings = googleBookings.filter((b) => b.date === dateStr && b.status !== 'completed');
+      const bookings = [...apiBookings];
+      localBookings.forEach(lb => {
+        const lbIdNormalized = lb.id.replace(/-/g, '').toLowerCase();
+        if (!bookings.some(ab => ab.id === lb.id || ab.id.replace(/-/g, '').toLowerCase() === lbIdNormalized)) {
+          bookings.push(lb);
+        }
+      });
+
+      const localBlocks = getBlocks().filter((block) => block.date === dateStr);
+      const apiBlocks = googleBlocks.filter((block) => block.date === dateStr);
+      const blocks = [...apiBlocks];
+      localBlocks.forEach(lb => {
+        const lbIdNormalized = lb.id.replace(/-/g, '').toLowerCase();
+        if (!blocks.some(ab => ab.id === lb.id || ab.id.replace(/-/g, '').toLowerCase() === lbIdNormalized)) {
+          blocks.push(lb);
+        }
+      });
 
       const timeToMinutes = (t: string) => {
         const [h, m] = t.split(':').map(Number);
@@ -122,48 +138,8 @@ const BookingSection = () => {
     };
 
     const localSlots = calculateLocalSlots();
-
-    // Call Google Apps Script backend if available
-    const google = (window as any).google;
-    if (google?.script?.run) {
-      google.script.run
-        .withSuccessHandler((slots: string[]) => {
-          if (Array.isArray(slots)) {
-            const blocks = [...getBlocks(), ...gasBlocks].filter((block) => block.date === dateStr);
-            const timeToMinutes = (t: string) => {
-              const [h, m] = t.split(':').map(Number);
-              return h * 60 + m;
-            };
-            const filteredSlots = slots.filter((timeStr) => {
-              const start = timeToMinutes(timeStr);
-              const end = start + totalDuration;
-
-              const hasBlockOverlap = blocks.some((block) => {
-                if (block.allDay) return true;
-                if (!block.start || !block.end) return false;
-                
-                const blockStart = timeToMinutes(block.start);
-                const blockEnd = timeToMinutes(block.end);
-                
-                return Math.max(start, blockStart) < Math.min(end, blockEnd);
-              });
-
-              return !hasBlockOverlap;
-            });
-            setAvailableTimes(filteredSlots);
-          } else {
-            setAvailableTimes(localSlots);
-          }
-        })
-        .withFailureHandler((err: any) => {
-          console.error("Error fetching available slots from GAS:", err);
-          setAvailableTimes(localSlots);
-        })
-        .getAvailableSlots(dateStr, totalDuration);
-    } else {
-      setAvailableTimes(localSlots);
-    }
-  }, [selectedDate, selectedService, extras, totalDuration, gasBlocks]);
+    setAvailableTimes(localSlots);
+  }, [selectedDate, selectedService, extras, totalDuration, googleBookings, googleBlocks]);
 
   // Combined service name and price
   const combinedServiceName = useMemo(() => {
@@ -254,21 +230,30 @@ const BookingSection = () => {
       setPhone('');
     };
 
-    const google = (window as any).google;
-    if (google?.script?.run) {
-      google.script.run
-        .withSuccessHandler(() => {
-          console.log("Booking synced to GAS");
-          finishBooking();
-        })
-        .withFailureHandler((err: any) => {
-          console.error("Error syncing booking to GAS:", err);
-          finishBooking(); // Proceed with fallback even if GAS fails to ensure user experience
-        })
-        .addBooking(booking, totalDuration);
-    } else {
-      finishBooking();
-    }
+    // Sincroniza o agendamento com o Google Calendar via API Serverless
+    fetch('/api/calendar', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        type: 'booking',
+        booking,
+        duration: totalDuration,
+      }),
+    })
+      .then((res) => {
+        if (!res.ok) throw new Error('Falha na API de sincronização');
+        return res.json();
+      })
+      .then((data) => {
+        console.log("Booking synced to Google Calendar:", data);
+        finishBooking();
+      })
+      .catch((err) => {
+        console.error("Error syncing booking to Google Calendar:", err);
+        finishBooking(); // Prossiga mesmo com erro no sync para garantir a experiência do usuário
+      });
   };
 
   const goBack = () => {

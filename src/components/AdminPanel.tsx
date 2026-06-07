@@ -44,56 +44,48 @@ const AdminPanel = () => {
   const [blocks, setBlocks] = useState<ScheduleBlock[]>([]);
 
   const reload = () => {
+    // Carregamento imediato do local storage para feedback instantâneo
     setBookings(getBookings());
     setCompleted(getCompleted());
-    
-    // Immediate fallback load from localStorage
-    const localBlocks = getBlocks();
-    setBlocks(localBlocks);
+    setBlocks(getBlocks());
 
-    // Sync from Google Apps Script if available
-    const google = (window as any).google;
-    if (google?.script?.run) {
-      const run = google.script.run;
-      
-      // Sync blocks
-      const getBlocksFunc = run.getBlocks ? 'getBlocks' : (run.getScheduleBlocks ? 'getScheduleBlocks' : null);
-      if (getBlocksFunc) {
-        run.withSuccessHandler((gasBlocks: ScheduleBlock[]) => {
-          if (Array.isArray(gasBlocks)) {
-            saveBlocks(gasBlocks);
-            setBlocks(gasBlocks);
-          }
-        })
-        .withFailureHandler((err: any) => {
-          console.error("Error loading blocks from GAS:", err);
-        })
-        [getBlocksFunc]();
-      }
-
-      // Sync bookings
-      if (run.getBookings) {
-        run.withSuccessHandler((gasBookings: Booking[]) => {
-          if (Array.isArray(gasBookings)) {
-            const activeBookings = gasBookings.filter(b => b.status !== 'completed');
-            const completedBookings = gasBookings.filter(b => b.status === 'completed');
-            
-            saveBookings(activeBookings);
-            saveCompleted(completedBookings);
-            
-            setBookings(activeBookings);
-            setCompleted(completedBookings);
-          }
-        })
-        .withFailureHandler((err: any) => {
-          console.error("Error loading bookings from GAS:", err);
-        })
-        .getBookings();
-      }
-    }
+    // Busca eventos em tempo real do Google Calendar API (fonte da verdade)
+    fetch('/api/calendar')
+      .then((res) => {
+        if (!res.ok) throw new Error('Falha ao buscar eventos do Google Agenda');
+        return res.json();
+      })
+      .then((data) => {
+        if (Array.isArray(data.bookings)) {
+          const active = data.bookings.filter((b: Booking) => b.status !== 'completed');
+          const done = data.bookings.filter((b: Booking) => b.status === 'completed');
+          
+          saveBookings(active);
+          saveCompleted(done);
+          setBookings(active);
+          setCompleted(done);
+        }
+        if (Array.isArray(data.blocks)) {
+          saveBlocks(data.blocks);
+          setBlocks(data.blocks);
+        }
+      })
+      .catch((err) => {
+        console.error("Error loading events from Google Calendar API:", err);
+      });
   };
 
   useEffect(() => { reload(); }, []);
+
+  const getBookingDuration = (serviceName: string): number => {
+    const names = serviceName.split(' + ');
+    let total = 0;
+    names.forEach(name => {
+      const svc = SERVICES.find(s => s.name === name);
+      if (svc) total += svc.time;
+    });
+    return total || 180;
+  };
 
   // Accept booking → send WhatsApp confirmation, mark as accepted
   const handleAccept = (booking: Booking) => {
@@ -104,46 +96,64 @@ const AdminPanel = () => {
     }
 
     // Update status locally for instant feedback
-    const updated = bookings.map(b => b.id === booking.id ? { ...b, status: 'accepted' as const } : b);
+    const updatedBooking = { ...booking, status: 'accepted' as const };
+    const updated = bookings.map(b => b.id === booking.id ? updatedBooking : b);
     saveBookings(updated);
     setBookings(updated);
 
-    // Sync status update to GAS
-    const google = (window as any).google;
-    if (google?.script?.run && google.script.run.updateBookingStatus) {
-      google.script.run
-        .withSuccessHandler(() => {
-          console.log("Booking status updated to accepted in GAS");
-          reload();
-        })
-        .withFailureHandler((err: any) => {
-          console.error("Error updating booking status in GAS:", err);
-        })
-        .updateBookingStatus(booking.id, 'accepted');
-    }
+    // Sync status update to Google Calendar
+    fetch('/api/calendar', {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        id: booking.id,
+        type: 'booking',
+        booking: updatedBooking,
+        duration: getBookingDuration(booking.service),
+      }),
+    })
+      .then((res) => {
+        if (!res.ok) throw new Error('Falha no update do status');
+        console.log("Booking status updated to accepted in Google Calendar");
+        reload();
+      })
+      .catch((err) => {
+        console.error("Error updating booking status in Google Calendar:", err);
+      });
   };
 
   // Finalize → move to completed, free time slot
   const handleFinalize = (booking: Booking) => {
+    const updatedBooking = { ...booking, status: 'completed' as const };
     addCompleted(booking);
     const updated = bookings.filter(b => b.id !== booking.id);
     saveBookings(updated);
     setBookings(updated);
     setCompleted(getCompleted());
 
-    // Sync status update to GAS
-    const google = (window as any).google;
-    if (google?.script?.run && google.script.run.updateBookingStatus) {
-      google.script.run
-        .withSuccessHandler(() => {
-          console.log("Booking status updated to completed in GAS");
-          reload();
-        })
-        .withFailureHandler((err: any) => {
-          console.error("Error updating booking status in GAS:", err);
-        })
-        .updateBookingStatus(booking.id, 'completed');
-    }
+    // Sync status update to Google Calendar
+    fetch('/api/calendar', {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        id: booking.id,
+        type: 'booking',
+        booking: updatedBooking,
+        duration: getBookingDuration(booking.service),
+      }),
+    })
+      .then((res) => {
+        if (!res.ok) throw new Error('Falha no update do status');
+        console.log("Booking status updated to completed in Google Calendar");
+        reload();
+      })
+      .catch((err) => {
+        console.error("Error updating booking status in Google Calendar:", err);
+      });
   };
 
   // Refuse → send WhatsApp with reason, remove from bookings
@@ -159,19 +169,18 @@ const AdminPanel = () => {
     setBookings(updated);
     setRefusingId(null);
 
-    // Sync cancellation/deletion to GAS
-    const google = (window as any).google;
-    if (google?.script?.run && google.script.run.removeBooking) {
-      google.script.run
-        .withSuccessHandler(() => {
-          console.log("Booking deleted from GAS");
-          reload();
-        })
-        .withFailureHandler((err: any) => {
-          console.error("Error deleting booking from GAS:", err);
-        })
-        .removeBooking(booking.id);
-    }
+    // Sync cancellation/deletion to Google Calendar
+    fetch(`/api/calendar?id=${booking.id}`, {
+      method: 'DELETE',
+    })
+      .then((res) => {
+        if (!res.ok) throw new Error('Falha ao excluir agendamento');
+        console.log("Booking deleted from Google Calendar");
+        reload();
+      })
+      .catch((err) => {
+        console.error("Error deleting booking in Google Calendar:", err);
+      });
   };
 
   // Delete completed service
@@ -230,19 +239,26 @@ const AdminPanel = () => {
     const svc = SERVICES.find(s => s.name === manualService);
     const duration = svc ? svc.time : 180;
 
-    // Sync manual booking to GAS
-    const google = (window as any).google;
-    if (google?.script?.run && google.script.run.addBooking) {
-      google.script.run
-        .withSuccessHandler(() => {
-          console.log("Manual booking synced to GAS");
-          reload();
-        })
-        .withFailureHandler((err: any) => {
-          console.error("Error syncing manual booking to GAS:", err);
-        })
-        .addBooking(booking, duration);
-    }
+    // Sync manual booking to Google Calendar via Serverless API
+    fetch('/api/calendar', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        type: 'booking',
+        booking,
+        duration,
+      }),
+    })
+      .then((res) => {
+        if (!res.ok) throw new Error('Falha ao adicionar agendamento manual');
+        console.log("Manual booking synced to Google Calendar");
+        reload();
+      })
+      .catch((err) => {
+        console.error("Error syncing manual booking to Google Calendar:", err);
+      });
 
     reload();
     setManualService('');
@@ -275,18 +291,25 @@ const AdminPanel = () => {
 
     addBlock(block);
 
-    const google = (window as any).google;
-    if (google?.script?.run) {
-      google.script.run
-        .withSuccessHandler(() => {
-          console.log("Block saved to GAS");
-          reload(); // Refresh dashboard list once confirmed by GAS backend
-        })
-        .withFailureHandler((err: any) => {
-          console.error("Error saving block to GAS:", err);
-        })
-        .addBlock(block);
-    }
+    // Sync block to Google Calendar via Serverless API
+    fetch('/api/calendar', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        type: 'block',
+        block,
+      }),
+    })
+      .then((res) => {
+        if (!res.ok) throw new Error('Falha ao salvar bloqueio');
+        console.log("Block saved to Google Calendar");
+        reload();
+      })
+      .catch((err) => {
+        console.error("Error saving block to Google Calendar:", err);
+      });
 
     reload();
     setBlockDate('');
@@ -301,17 +324,18 @@ const AdminPanel = () => {
   const handleDeleteBlock = (id: string) => {
     removeBlock(id);
 
-    const google = (window as any).google;
-    if (google?.script?.run) {
-      google.script.run
-        .withSuccessHandler(() => {
-          console.log("Block deleted from GAS");
-        })
-        .withFailureHandler((err: any) => {
-          console.error("Error deleting block from GAS:", err);
-        })
-        .removeBlock(id);
-    }
+    // Sync block deletion to Google Calendar via Serverless API
+    fetch(`/api/calendar?id=${id}`, {
+      method: 'DELETE',
+    })
+      .then((res) => {
+        if (!res.ok) throw new Error('Falha ao deletar bloqueio');
+        console.log("Block deleted from Google Calendar");
+        reload();
+      })
+      .catch((err) => {
+        console.error("Error deleting block from Google Calendar:", err);
+      });
 
     reload();
   };
