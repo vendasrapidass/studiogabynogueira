@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import { SERVICES, isDayAllowed, getTimesForDate, WHATSAPP_NUMBER, generateWhatsAppUrl, formatPhone, getBookingDuration } from '@/lib/types';
-import { addBooking, getBookings } from '@/lib/bookingStore';
+import { addBooking, getBookings, getBlocks } from '@/lib/bookingStore';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Calendar } from '@/components/ui/calendar';
 import { cn } from '@/lib/utils';
@@ -39,6 +39,7 @@ const BookingSection = () => {
 
     const calculateLocalSlots = () => {
       const bookings = getBookings().filter((b) => b.date === dateStr && b.status !== 'completed');
+      const blocks = getBlocks().filter((block) => block.date === dateStr);
 
       const timeToMinutes = (t: string) => {
         const [h, m] = t.split(':').map(Number);
@@ -67,6 +68,21 @@ const BookingSection = () => {
 
         const overlapsLunch = Math.max(start, lunchStart) < Math.min(end, lunchEnd);
         if (overlapsLunch) {
+          return false;
+        }
+
+        // Check overlap with schedule blocks of the day
+        const hasBlockOverlap = blocks.some((block) => {
+          if (block.allDay) return true;
+          if (!block.start || !block.end) return false;
+          
+          const blockStart = timeToMinutes(block.start);
+          const blockEnd = timeToMinutes(block.end);
+          
+          return Math.max(start, blockStart) < Math.min(end, blockEnd);
+        });
+
+        if (hasBlockOverlap) {
           return false;
         }
 

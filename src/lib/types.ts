@@ -6,6 +6,15 @@ export interface Service {
   category: string;
 }
 
+export interface ScheduleBlock {
+  id: string;
+  date: string;
+  allDay: boolean;
+  start?: string;
+  end?: string;
+  reason: string;
+}
+
 export interface Booking {
   id: string;
   service: string;

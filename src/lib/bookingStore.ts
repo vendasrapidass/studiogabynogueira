@@ -1,7 +1,27 @@
-import { Booking } from './types';
+import { Booking, ScheduleBlock } from './types';
 
 const BOOKINGS_KEY = 'classea_bookings';
 const COMPLETED_KEY = 'classea_completed';
+const BLOCKS_KEY = 'studiogaby_blocks';
+
+export function getBlocks(): ScheduleBlock[] {
+  return JSON.parse(localStorage.getItem(BLOCKS_KEY) || '[]');
+}
+
+export function saveBlocks(blocks: ScheduleBlock[]): void {
+  localStorage.setItem(BLOCKS_KEY, JSON.stringify(blocks));
+}
+
+export function addBlock(block: ScheduleBlock): void {
+  const blocks = getBlocks();
+  blocks.push(block);
+  saveBlocks(blocks);
+}
+
+export function removeBlock(id: string): void {
+  const blocks = getBlocks().filter(b => b.id !== id);
+  saveBlocks(blocks);
+}
 
 export function getBookings(): Booking[] {
   return JSON.parse(localStorage.getItem(BOOKINGS_KEY) || '[]');

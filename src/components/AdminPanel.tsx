@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Booking, SERVICES, generateWhatsAppUrl, formatPhone } from '@/lib/types';
-import { getBookings, saveBookings, getCompleted, saveCompleted, addCompleted, removeCompleted, addBooking } from '@/lib/bookingStore';
+import { Booking, SERVICES, generateWhatsAppUrl, formatPhone, ScheduleBlock } from '@/lib/types';
+import { getBookings, saveBookings, getCompleted, saveCompleted, addCompleted, removeCompleted, addBooking, getBlocks, addBlock, removeBlock } from '@/lib/bookingStore';
 import { useNavigate } from 'react-router-dom';
 import { CalendarDays, DollarSign, Scissors, TrendingUp, ArrowLeft, Plus, X, Check, Clock, Pencil, Trash2, Phone } from 'lucide-react';
 
@@ -34,9 +34,19 @@ const AdminPanel = () => {
   const [manualTime, setManualTime] = useState('');
   const [showSuccess, setShowSuccess] = useState(false);
 
+  // Schedule block state
+  const [addMode, setAddMode] = useState<'booking' | 'block'>('booking');
+  const [blockDate, setBlockDate] = useState('');
+  const [blockAllDay, setBlockAllDay] = useState(false);
+  const [blockStart, setBlockStart] = useState('');
+  const [blockEnd, setBlockEnd] = useState('');
+  const [blockReason, setBlockReason] = useState('');
+  const [blocks, setBlocks] = useState<ScheduleBlock[]>([]);
+
   const reload = () => {
     setBookings(getBookings());
     setCompleted(getCompleted());
+    setBlocks(getBlocks());
   };
 
   useEffect(() => { reload(); }, []);
@@ -133,6 +143,60 @@ const AdminPanel = () => {
     setShowSuccess(true);
     setTab('bookings');
     setTimeout(() => setShowSuccess(false), 2500);
+  };
+
+  const handleSaveBlock = () => {
+    if (!blockDate || (!blockAllDay && (!blockStart || !blockEnd))) return;
+
+    const block: ScheduleBlock = {
+      id: crypto.randomUUID(),
+      date: blockDate,
+      allDay: blockAllDay,
+      start: blockAllDay ? undefined : blockStart,
+      end: blockAllDay ? undefined : blockEnd,
+      reason: blockReason || 'Bloqueio de Agenda',
+    };
+
+    addBlock(block);
+
+    const google = (window as any).google;
+    if (google?.script?.run) {
+      google.script.run
+        .withSuccessHandler(() => {
+          console.log("Block saved to GAS");
+        })
+        .withFailureHandler((err: any) => {
+          console.error("Error saving block to GAS:", err);
+        })
+        .addBlock(block);
+    }
+
+    reload();
+    setBlockDate('');
+    setBlockAllDay(false);
+    setBlockStart('');
+    setBlockEnd('');
+    setBlockReason('');
+    setShowSuccess(true);
+    setTimeout(() => setShowSuccess(false), 2500);
+  };
+
+  const handleDeleteBlock = (id: string) => {
+    removeBlock(id);
+
+    const google = (window as any).google;
+    if (google?.script?.run) {
+      google.script.run
+        .withSuccessHandler(() => {
+          console.log("Block deleted from GAS");
+        })
+        .withFailureHandler((err: any) => {
+          console.error("Error deleting block from GAS:", err);
+        })
+        .removeBlock(id);
+    }
+
+    reload();
   };
 
   const handleSelectService = (name: string) => {
@@ -451,90 +515,227 @@ const AdminPanel = () => {
 
           {/* ===== ADD SERVICE TAB ===== */}
           {tab === 'add' && (
-            <div className="max-w-lg mx-auto">
+            <div className="max-w-lg mx-auto space-y-6">
               <div className="bg-card/60 backdrop-blur-sm rounded-2xl border border-primary/10 p-6 md:p-8">
                 <div className="flex items-center gap-3 mb-6">
                   <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
                     <Plus className="w-5 h-5 text-primary" />
                   </div>
                   <div>
-                    <h3 className="font-bold text-foreground">Adicionar Agendamento</h3>
-                    <p className="text-xs text-muted-foreground">O serviço irá para a lista de agendamentos</p>
+                    <h3 className="font-bold text-foreground">
+                      {addMode === 'booking' ? 'Adicionar Agendamento' : 'Bloquear Agenda'}
+                    </h3>
+                    <p className="text-xs text-muted-foreground">
+                      {addMode === 'booking' 
+                        ? 'O serviço irá para a lista de agendamentos' 
+                        : 'Defina horários em que a agenda estará fechada'}
+                    </p>
                   </div>
                 </div>
 
-                <div className="space-y-5">
-                  <div>
-                    <label className="text-xs font-medium text-muted-foreground uppercase tracking-widest mb-3 block">Serviço Rápido</label>
-                    <div className="grid grid-cols-2 gap-2">
-                      {SERVICES.map(s => (
-                        <button
-                          key={s.name}
-                          onClick={() => handleSelectService(s.name)}
-                          className={`p-3 rounded-xl text-xs font-medium transition-all border text-left ${
-                            manualService === s.name
-                              ? 'bg-primary/10 border-primary/30 text-primary'
-                              : 'bg-background/50 border-primary/5 text-muted-foreground hover:border-primary/20 hover:text-foreground'
-                          }`}
-                        >
-                          <span className="block">{s.name}</span>
-                          <span className="font-mono text-[10px] opacity-70">R$ {s.price}</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="text-xs font-medium text-muted-foreground uppercase tracking-widest mb-2 block">Ou nome personalizado</label>
-                    <input type="text" value={manualService} onChange={e => setManualService(e.target.value)} placeholder="Nome do serviço" className="w-full bg-background/50 border border-primary/10 focus:border-primary/40 p-3.5 rounded-xl outline-none transition-all text-foreground text-sm placeholder:text-muted-foreground/40" />
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="text-xs font-medium text-muted-foreground uppercase tracking-widest mb-2 block">Valor (R$)</label>
-                      <input type="number" value={manualPrice} onChange={e => setManualPrice(e.target.value)} placeholder="0" className="w-full bg-background/50 border border-primary/10 focus:border-primary/40 p-3.5 rounded-xl outline-none transition-all text-foreground text-sm font-mono placeholder:text-muted-foreground/40" />
-                    </div>
-                    <div>
-                      <label className="text-xs font-medium text-muted-foreground uppercase tracking-widest mb-2 block">Horário</label>
-                      <input type="time" value={manualTime} onChange={e => setManualTime(e.target.value)} className="w-full bg-background/50 border border-primary/10 focus:border-primary/40 p-3.5 rounded-xl outline-none transition-all text-foreground text-sm placeholder:text-muted-foreground/40" />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="text-xs font-medium text-muted-foreground uppercase tracking-widest mb-2 block">Nome do cliente</label>
-                    <input type="text" value={manualName} onChange={e => setManualName(e.target.value)} placeholder="Nome do cliente" className="w-full bg-background/50 border border-primary/10 focus:border-primary/40 p-3.5 rounded-xl outline-none transition-all text-foreground text-sm placeholder:text-muted-foreground/40" />
-                  </div>
-
-                  <div>
-                    <label className="text-xs font-medium text-muted-foreground uppercase tracking-widest mb-2 block">WhatsApp do cliente</label>
-                    <input type="tel" value={manualPhone} onChange={e => setManualPhone(formatPhone(e.target.value))} placeholder="(41) 99999-9999" maxLength={15} className="w-full bg-background/50 border border-primary/10 focus:border-primary/40 p-3.5 rounded-xl outline-none transition-all text-foreground text-sm placeholder:text-muted-foreground/40" />
-                  </div>
-
-                  <div>
-                    <label className="text-xs font-medium text-muted-foreground uppercase tracking-widest mb-2 block">Data (DD/MM/AAAA)</label>
-                    <input
-                      type="text"
-                      value={manualDate}
-                      onChange={e => {
-                        let v = e.target.value.replace(/\D/g, '').slice(0, 8);
-                        if (v.length > 4) v = v.slice(0, 2) + '/' + v.slice(2, 4) + '/' + v.slice(4);
-                        else if (v.length > 2) v = v.slice(0, 2) + '/' + v.slice(2);
-                        setManualDate(v);
-                      }}
-                      placeholder="06/04/2026"
-                      className="w-full bg-background/50 border border-primary/10 focus:border-primary/40 p-3.5 rounded-xl outline-none transition-all text-foreground text-sm placeholder:text-muted-foreground/40"
-                    />
-                  </div>
-
+                {/* Mode Selector Tabs */}
+                <div className="flex bg-background/80 p-1 rounded-xl border border-primary/5 mb-6">
                   <button
-                    onClick={handleAddManualService}
-                    disabled={!manualService || !manualPrice || !manualName || !manualDate || !manualTime}
-                    className="w-full py-4 bg-primary text-primary-foreground font-bold rounded-xl transition-all hover:shadow-[0_0_25px_-5px_hsl(45_97%_54%/0.5)] hover:scale-[1.02] active:scale-[0.98] disabled:opacity-30 disabled:hover:shadow-none disabled:hover:scale-100 flex items-center justify-center gap-2"
+                    type="button"
+                    onClick={() => setAddMode('booking')}
+                    className={`flex-1 py-2 rounded-lg text-xs font-semibold transition-all ${
+                      addMode === 'booking'
+                        ? 'bg-primary text-primary-foreground shadow-sm'
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
                   >
-                    <Plus className="w-5 h-5" /> Adicionar aos Agendamentos
+                    Adicionar Agendamento
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAddMode('block')}
+                    className={`flex-1 py-2 rounded-lg text-xs font-semibold transition-all ${
+                      addMode === 'block'
+                        ? 'bg-primary text-primary-foreground shadow-sm'
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    Bloquear Horário
                   </button>
                 </div>
+
+                {addMode === 'booking' ? (
+                  <div className="space-y-5 animate-in fade-in duration-200">
+                    <div>
+                      <label className="text-xs font-medium text-muted-foreground uppercase tracking-widest mb-3 block">Serviço Rápido</label>
+                      <div className="grid grid-cols-2 gap-2">
+                        {SERVICES.map(s => (
+                          <button
+                            key={s.name}
+                            onClick={() => handleSelectService(s.name)}
+                            className={`p-3 rounded-xl text-xs font-medium transition-all border text-left ${
+                              manualService === s.name
+                                ? 'bg-primary/10 border-primary/30 text-primary'
+                                : 'bg-background/50 border-primary/5 text-muted-foreground hover:border-primary/20 hover:text-foreground'
+                            }`}
+                          >
+                            <span className="block">{s.name}</span>
+                            <span className="font-mono text-[10px] opacity-70">R$ {s.price}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="text-xs font-medium text-muted-foreground uppercase tracking-widest mb-2 block">Ou nome personalizado</label>
+                      <input type="text" value={manualService} onChange={e => setManualService(e.target.value)} placeholder="Nome do serviço" className="w-full bg-background/50 border border-primary/10 focus:border-primary/40 p-3.5 rounded-xl outline-none transition-all text-foreground text-sm placeholder:text-muted-foreground/40" />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="text-xs font-medium text-muted-foreground uppercase tracking-widest mb-2 block">Valor (R$)</label>
+                        <input type="number" value={manualPrice} onChange={e => setManualPrice(e.target.value)} placeholder="0" className="w-full bg-background/50 border border-primary/10 focus:border-primary/40 p-3.5 rounded-xl outline-none transition-all text-foreground text-sm font-mono placeholder:text-muted-foreground/40" />
+                      </div>
+                      <div>
+                        <label className="text-xs font-medium text-muted-foreground uppercase tracking-widest mb-2 block">Horário</label>
+                        <input type="time" value={manualTime} onChange={e => setManualTime(e.target.value)} className="w-full bg-background/50 border border-primary/10 focus:border-primary/40 p-3.5 rounded-xl outline-none transition-all text-foreground text-sm placeholder:text-muted-foreground/40" />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="text-xs font-medium text-muted-foreground uppercase tracking-widest mb-2 block">Nome do cliente</label>
+                      <input type="text" value={manualName} onChange={e => setManualName(e.target.value)} placeholder="Nome do cliente" className="w-full bg-background/50 border border-primary/10 focus:border-primary/40 p-3.5 rounded-xl outline-none transition-all text-foreground text-sm placeholder:text-muted-foreground/40" />
+                    </div>
+
+                    <div>
+                      <label className="text-xs font-medium text-muted-foreground uppercase tracking-widest mb-2 block">WhatsApp do cliente</label>
+                      <input type="tel" value={manualPhone} onChange={e => setManualPhone(formatPhone(e.target.value))} placeholder="(41) 99999-9999" maxLength={15} className="w-full bg-background/50 border border-primary/10 focus:border-primary/40 p-3.5 rounded-xl outline-none transition-all text-foreground text-sm placeholder:text-muted-foreground/40" />
+                    </div>
+
+                    <div>
+                      <label className="text-xs font-medium text-muted-foreground uppercase tracking-widest mb-2 block">Data (DD/MM/AAAA)</label>
+                      <input
+                        type="text"
+                        value={manualDate}
+                        onChange={e => {
+                          let v = e.target.value.replace(/\D/g, '').slice(0, 8);
+                          if (v.length > 4) v = v.slice(0, 2) + '/' + v.slice(2, 4) + '/' + v.slice(4);
+                          else if (v.length > 2) v = v.slice(0, 2) + '/' + v.slice(2);
+                          setManualDate(v);
+                        }}
+                        placeholder="06/04/2026"
+                        className="w-full bg-background/50 border border-primary/10 focus:border-primary/40 p-3.5 rounded-xl outline-none transition-all text-foreground text-sm placeholder:text-muted-foreground/40"
+                      />
+                    </div>
+
+                    <button
+                      onClick={handleAddManualService}
+                      disabled={!manualService || !manualPrice || !manualName || !manualDate || !manualTime}
+                      className="w-full py-4 bg-primary text-primary-foreground font-bold rounded-xl transition-all hover:shadow-[0_0_25px_-5px_hsl(6_48%_68%/0.5)] hover:scale-[1.02] active:scale-[0.98] disabled:opacity-30 disabled:hover:shadow-none disabled:hover:scale-100 flex items-center justify-center gap-2"
+                    >
+                      <Plus className="w-5 h-5" /> Adicionar aos Agendamentos
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-5 animate-in fade-in duration-200">
+                    <div>
+                      <label className="text-xs font-medium text-muted-foreground uppercase tracking-widest mb-2 block">Data (DD/MM/AAAA)</label>
+                      <input
+                        type="text"
+                        value={blockDate}
+                        onChange={e => {
+                          let v = e.target.value.replace(/\D/g, '').slice(0, 8);
+                          if (v.length > 4) v = v.slice(0, 2) + '/' + v.slice(2, 4) + '/' + v.slice(4);
+                          else if (v.length > 2) v = v.slice(0, 2) + '/' + v.slice(2);
+                          setBlockDate(v);
+                        }}
+                        placeholder="06/04/2026"
+                        className="w-full bg-background/50 border border-primary/10 focus:border-primary/40 p-3.5 rounded-xl outline-none transition-all text-foreground text-sm placeholder:text-muted-foreground/40"
+                      />
+                    </div>
+
+                    <div className="flex items-center justify-between bg-background/50 border border-primary/10 p-4 rounded-xl">
+                      <span className="text-sm text-foreground font-medium">Bloquear o dia inteiro</span>
+                      <button
+                        type="button"
+                        onClick={() => setBlockAllDay(!blockAllDay)}
+                        className={`w-11 h-6 flex items-center rounded-full p-1 cursor-pointer transition-colors duration-300 ${
+                          blockAllDay ? 'bg-primary' : 'bg-zinc-700'
+                        }`}
+                      >
+                        <div
+                          className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform duration-300 ${
+                            blockAllDay ? 'translate-x-5' : 'translate-x-0'
+                          }`}
+                        />
+                      </button>
+                    </div>
+
+                    {!blockAllDay && (
+                      <div className="grid grid-cols-2 gap-4 animate-in slide-in-from-top-2 duration-200">
+                        <div>
+                          <label className="text-xs font-medium text-muted-foreground uppercase tracking-widest mb-2 block">Horário de Início</label>
+                          <input
+                            type="time"
+                            value={blockStart}
+                            onChange={e => setBlockStart(e.target.value)}
+                            className="w-full bg-background/50 border border-primary/10 focus:border-primary/40 p-3.5 rounded-xl outline-none transition-all text-foreground text-sm"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs font-medium text-muted-foreground uppercase tracking-widest mb-2 block">Horário de Término</label>
+                          <input
+                            type="time"
+                            value={blockEnd}
+                            onChange={e => setBlockEnd(e.target.value)}
+                            className="w-full bg-background/50 border border-primary/10 focus:border-primary/40 p-3.5 rounded-xl outline-none transition-all text-foreground text-sm"
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    <div>
+                      <label className="text-xs font-medium text-muted-foreground uppercase tracking-widest mb-2 block">Motivo (Ex: Folga, Almoço, Manutenção)</label>
+                      <input
+                        type="text"
+                        value={blockReason}
+                        onChange={e => setBlockReason(e.target.value)}
+                        placeholder="Folga, Almoço, Manutenção"
+                        className="w-full bg-background/50 border border-primary/10 focus:border-primary/40 p-3.5 rounded-xl outline-none transition-all text-foreground text-sm placeholder:text-muted-foreground/40"
+                      />
+                    </div>
+
+                    <button
+                      onClick={handleSaveBlock}
+                      disabled={!blockDate || (!blockAllDay && (!blockStart || !blockEnd))}
+                      className="w-full py-4 bg-primary text-primary-foreground font-bold rounded-xl transition-all hover:shadow-[0_0_25px_-5px_hsl(6_48%_68%/0.5)] hover:scale-[1.02] active:scale-[0.98] disabled:opacity-30 disabled:hover:shadow-none disabled:hover:scale-100 flex items-center justify-center gap-2"
+                    >
+                      Salvar Bloqueio
+                    </button>
+                  </div>
+                )}
               </div>
+
+              {/* Active Blocks List */}
+              {addMode === 'block' && blocks.length > 0 && (
+                <div className="bg-card/60 backdrop-blur-sm rounded-2xl border border-primary/10 p-6 md:p-8 animate-in fade-in duration-300">
+                  <h4 className="font-bold text-sm text-foreground mb-4">Horários Bloqueados</h4>
+                  <div className="space-y-3">
+                    {blocks.map(b => (
+                      <div key={b.id} className="flex items-center justify-between p-3.5 bg-background/50 border border-primary/5 rounded-xl text-sm">
+                        <div className="space-y-1">
+                          <p className="font-semibold text-foreground">{b.reason}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {b.date} • {b.allDay ? 'Dia Inteiro' : `${b.start} às ${b.end}`}
+                          </p>
+                        </div>
+                        <button
+                          onClick={() => handleDeleteBlock(b.id)}
+                          className="p-2 bg-destructive/10 hover:bg-destructive/20 text-destructive rounded-lg transition-colors"
+                          title="Remover Bloqueio"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
