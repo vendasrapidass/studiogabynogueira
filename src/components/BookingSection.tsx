@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { SERVICES, isDayAllowed, getTimesForDate, WHATSAPP_NUMBER, generateWhatsAppUrl, formatPhone, getBookingDuration } from '@/lib/types';
 import { addBooking, getBookings } from '@/lib/bookingStore';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -26,58 +26,84 @@ const BookingSection = () => {
     return selectedService.time + extras.reduce((sum, e) => sum + e.time, 0);
   }, [selectedService, extras]);
 
-  const availableTimes = useMemo(() => {
-    if (!selectedDate || !selectedService) return [];
+  const [availableTimes, setAvailableTimes] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (!selectedDate || !selectedService) {
+      setAvailableTimes([]);
+      return;
+    }
+
     const dateStr = format(selectedDate, 'dd/MM/yyyy');
-    const bookings = getBookings().filter((b) => b.date === dateStr && b.status !== 'completed');
     const baseTimes = getTimesForDate(selectedDate);
 
-    const timeToMinutes = (t: string) => {
-      const [h, m] = t.split(':').map(Number);
-      return h * 60 + m;
+    const calculateLocalSlots = () => {
+      const bookings = getBookings().filter((b) => b.date === dateStr && b.status !== 'completed');
+
+      const timeToMinutes = (t: string) => {
+        const [h, m] = t.split(':').map(Number);
+        return h * 60 + m;
+      };
+
+      const now = new Date();
+      const isToday = selectedDate.toDateString() === now.toDateString();
+      const currentMinutes = now.getHours() * 60 + now.getMinutes();
+
+      return baseTimes.filter((timeStr) => {
+        const start = timeToMinutes(timeStr);
+        const end = start + totalDuration;
+
+        // Filter out past times for today
+        if (isToday && start < currentMinutes) {
+          return false;
+        }
+
+        // Lunch break check:
+        // Weekdays: 12:00 to 13:00 (720 to 780 minutes)
+        // Saturdays: 11:30 to 12:30 (690 to 750 minutes)
+        const isSaturday = selectedDate.getDay() === 6;
+        const lunchStart = isSaturday ? 690 : 720;
+        const lunchEnd = isSaturday ? 750 : 780;
+
+        const overlapsLunch = Math.max(start, lunchStart) < Math.min(end, lunchEnd);
+        if (overlapsLunch) {
+          return false;
+        }
+
+        // Check overlap with any booking of the day
+        const hasOverlap = bookings.some((b) => {
+          const bStart = timeToMinutes(b.time);
+          const bDuration = getBookingDuration(b.service);
+          const bEnd = bStart + bDuration;
+
+          return Math.max(start, bStart) < Math.min(end, bEnd);
+        });
+
+        return !hasOverlap;
+      });
     };
 
-    const now = new Date();
-    const isToday = selectedDate.toDateString() === now.toDateString();
-    const currentMinutes = now.getHours() * 60 + now.getMinutes();
+    const localSlots = calculateLocalSlots();
 
-    return baseTimes.filter((timeStr) => {
-      const start = timeToMinutes(timeStr);
-      const end = start + totalDuration;
-
-      // Filter out past times for today
-      if (isToday && start < currentMinutes) {
-        return false;
-      }
-
-      // Must finish by 20:00 (1200 minutes)
-      if (end > 1200) {
-        return false;
-      }
-
-      // Lunch break check:
-      // Weekdays: 12:00 to 13:00 (720 to 780 minutes)
-      // Saturdays: 11:30 to 12:30 (690 to 750 minutes)
-      const isSaturday = selectedDate.getDay() === 6;
-      const lunchStart = isSaturday ? 690 : 720;
-      const lunchEnd = isSaturday ? 750 : 780;
-
-      const overlapsLunch = Math.max(start, lunchStart) < Math.min(end, lunchEnd);
-      if (overlapsLunch) {
-        return false;
-      }
-
-      // Check overlap with any booking of the day
-      const hasOverlap = bookings.some((b) => {
-        const bStart = timeToMinutes(b.time);
-        const bDuration = getBookingDuration(b.service);
-        const bEnd = bStart + bDuration;
-
-        return Math.max(start, bStart) < Math.min(end, bEnd);
-      });
-
-      return !hasOverlap;
-    });
+    // Call Google Apps Script backend if available
+    const google = (window as any).google;
+    if (google?.script?.run) {
+      google.script.run
+        .withSuccessHandler((slots: string[]) => {
+          if (Array.isArray(slots)) {
+            setAvailableTimes(slots);
+          } else {
+            setAvailableTimes(localSlots);
+          }
+        })
+        .withFailureHandler((err: any) => {
+          console.error("Error fetching available slots from GAS:", err);
+          setAvailableTimes(localSlots);
+        })
+        .getAvailableSlots(dateStr, totalDuration);
+    } else {
+      setAvailableTimes(localSlots);
+    }
   }, [selectedDate, selectedService, extras, totalDuration]);
 
   // Combined service name and price
