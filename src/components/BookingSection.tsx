@@ -209,14 +209,14 @@ const BookingSection = () => {
       time: selectedTime,
       name: name.trim(),
       phone: phone.trim(),
-      status: 'pending' as const,
+      status: 'accepted' as const,
     };
 
     setIsSubmitting(true);
 
     const finishBooking = () => {
       addBooking(booking);
-      const msg = `✨ *STUDIO GABY NOGUEIRA* ✨\n\nOlá! 🌸\n\nMeu nome é *${booking.name}*.\nGostaria de confirmar meu agendamento:\n\n📋 *Serviço:* ${booking.service}\n💰 *Valor:* R$ ${booking.price},00\n📅 *Data:* ${booking.date}\n🕐 *Horário:* ${booking.time}\n📱 *Meu WhatsApp:* ${booking.phone}\n\n⏳ Aguardo sua confirmação!\nObrigado! 💕`;
+      const msg = `✨ STUDIO GABY NOGUEIRA ✨\n\nOlá! 🌸\nMeu nome é ${booking.name}.\nMeu agendamento foi realizado com sucesso:\n\n📋 Serviço: ${booking.service}\n💰 Valor: R$ ${booking.price},00\n📅 Data: ${booking.date}\n🕐 Horário: ${booking.time}\n📱 Meu WhatsApp: ${booking.phone}\n\nObrigado! 💕`;
       window.location.href = generateWhatsAppUrl(WHATSAPP_NUMBER, msg);
 
       setIsSubmitting(false);

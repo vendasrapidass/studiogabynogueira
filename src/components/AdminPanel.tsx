@@ -184,6 +184,27 @@ const AdminPanel = () => {
       });
   };
 
+  // Cancel/delete booking from admin panel (automatically confirm deletion with prompt)
+  const handleCancelBooking = (booking: Booking) => {
+    if (window.confirm(`Deseja realmente cancelar o agendamento de ${booking.name}?`)) {
+      const updated = bookings.filter(b => b.id !== booking.id);
+      saveBookings(updated);
+      setBookings(updated);
+
+      fetch(`/api/calendar?id=${booking.id}`, {
+        method: 'DELETE',
+      })
+        .then((res) => {
+          if (!res.ok) throw new Error('Falha ao excluir agendamento');
+          console.log("Booking deleted from Google Calendar");
+          reload();
+        })
+        .catch((err) => {
+          console.error("Error deleting booking in Google Calendar:", err);
+        });
+    }
+  };
+
   // Delete completed service
   const handleDeleteCompleted = (id: string) => {
     removeCompleted(id);
@@ -533,7 +554,7 @@ const AdminPanel = () => {
                               <span className="text-[10px] bg-primary/20 text-primary px-2 py-0.5 rounded-full font-bold uppercase tracking-wider">Concluído</span>
                             )}
                             {a.status === 'accepted' && (
-                              <span className="text-[10px] bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded-full font-bold uppercase tracking-wider">Pendente</span>
+                              <span className="text-[10px] bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded-full font-bold uppercase tracking-wider">Confirmado</span>
                             )}
                             {a.status === 'pending' && (
                               <span className="text-[10px] bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded-full font-bold uppercase tracking-wider">Aguardando</span>
@@ -562,49 +583,24 @@ const AdminPanel = () => {
                                 <Trash2 className="w-4 h-4" />
                               </button>
                             </div>
-                          ) : a.status === 'accepted' ? (
-                            <button
-                              onClick={() => handleFinalize(a)}
-                              className="px-5 py-2.5 bg-primary text-primary-foreground rounded-xl text-sm font-bold transition-all hover:shadow-[0_0_20px_-5px_hsl(6_48%_68%/0.4)] hover:scale-105 active:scale-95 flex items-center gap-2"
-                            >
-                              <Check className="w-4 h-4" /> Finalizar
-                            </button>
                           ) : (
-                            <>
+                            <div className="flex gap-2">
                               <button
-                                onClick={() => handleAccept(a)}
-                                className="px-5 py-2.5 bg-emerald-600 text-foreground rounded-xl text-sm font-bold transition-all hover:scale-105 active:scale-95"
+                                onClick={() => handleFinalize(a)}
+                                className="px-4 py-2 bg-primary text-primary-foreground rounded-xl text-xs font-bold transition-all hover:shadow-[0_0_20px_-5px_hsl(6_48%_68%/0.4)] hover:scale-105 active:scale-95 flex items-center gap-1.5"
                               >
-                                ✅ Aceitar
+                                <Check className="w-3.5 h-3.5" /> Finalizar
                               </button>
                               <button
-                                onClick={() => setRefusingId(a.id)}
-                                className="px-5 py-2.5 bg-destructive/10 text-destructive border border-destructive/20 rounded-xl text-sm font-bold transition-all hover:bg-destructive hover:text-destructive-foreground hover:scale-105 active:scale-95"
+                                onClick={() => handleCancelBooking(a)}
+                                className="px-4 py-2 bg-destructive/10 text-destructive border border-destructive/20 rounded-xl text-xs font-bold transition-all hover:bg-destructive hover:text-destructive-foreground hover:scale-105 active:scale-95 flex items-center gap-1.5"
                               >
-                                ✕ Recusar
+                                <X className="w-3.5 h-3.5" /> Cancelar
                               </button>
-                            </>
+                            </div>
                           )}
                         </div>
                       </div>
-
-                      {refusingId === a.id && (
-                        <div className="mt-4 p-4 bg-background/50 rounded-xl border border-destructive/10 space-y-2">
-                          <p className="text-sm font-medium text-foreground mb-3">Motivo da recusa:</p>
-                          {REFUSE_REASONS.map(reason => (
-                            <button
-                              key={reason}
-                              onClick={() => handleRefuse(a, reason)}
-                              className="block w-full text-left px-4 py-2.5 rounded-lg bg-card hover:bg-destructive/10 hover:text-destructive text-sm transition-all border border-transparent hover:border-destructive/20"
-                            >
-                              {reason}
-                            </button>
-                          ))}
-                          <button onClick={() => setRefusingId(null)} className="text-xs text-muted-foreground hover:text-foreground mt-2 transition-colors">
-                            Cancelar
-                          </button>
-                        </div>
-                      )}
                     </div>
                   );
                 } else {
