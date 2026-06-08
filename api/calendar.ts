@@ -170,21 +170,24 @@ export default async function handler(req: any, res: any) {
           // 3. Automação de Status para Eventos Passados
           if (isPast) {
             status = 'completed';
-          } else if (shared?.status) {
-            status = shared.status;
           } else {
-            // Parser manual de status para futuros
-            const desc = event.description || '';
-            const statusMatch = desc.match(/Status:\s*(.*)/i);
-            if (statusMatch) {
-              status = statusMatch[1].trim();
-            } else if (summary.includes('[Confirmado]')) {
-              status = 'accepted';
-            } else if (summary.includes('[Concluído]')) {
-              status = 'completed';
+            let parsedStatus = 'accepted';
+            if (shared?.status) {
+              parsedStatus = shared.status;
             } else {
-              status = 'accepted';
+              // Parser manual de status para futuros
+              const desc = event.description || '';
+              const statusMatch = desc.match(/Status:\s*(.*)/i);
+              if (statusMatch) {
+                parsedStatus = statusMatch[1].trim();
+              } else if (summary.includes('[Confirmado]')) {
+                parsedStatus = 'accepted';
+              } else if (summary.includes('[Concluído]')) {
+                parsedStatus = 'completed';
+              }
             }
+            // Apenas accepted (Confirmado) e completed (Concluído) são aceitos.
+            status = parsedStatus === 'completed' ? 'completed' : 'accepted';
           }
 
           // 4. Correção de Datas Vazias

@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Booking, SERVICES, generateWhatsAppUrl, formatPhone, ScheduleBlock } from '@/lib/types';
-import { getBookings, saveBookings, getCompleted, saveCompleted, addCompleted, removeCompleted, addBooking, getBlocks, addBlock, removeBlock } from '@/lib/bookingStore';
+import { getBookings, saveBookings, getCompleted, saveCompleted, addCompleted, removeCompleted, addBooking, getBlocks, saveBlocks, addBlock, removeBlock } from '@/lib/bookingStore';
 import { useNavigate } from 'react-router-dom';
 import { CalendarDays, DollarSign, Scissors, TrendingUp, ArrowLeft, Plus, X, Check, Clock, Pencil, Trash2, Phone } from 'lucide-react';
 
@@ -16,7 +16,7 @@ const AdminPanel = () => {
   const [completed, setCompleted] = useState<Booking[]>([]);
   const [refusingId, setRefusingId] = useState<string | null>(null);
   const [filter, setFilter] = useState<FilterType>('month');
-  const [subFilter, setSubFilter] = useState<'all' | 'pending' | 'accepted' | 'completed' | 'blocks'>('all');
+  const [subFilter, setSubFilter] = useState<'all' | 'pending' | 'accepted' | 'completed' | 'blocks'>('accepted');
 
   // Edit state
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -51,7 +51,12 @@ const AdminPanel = () => {
     setBlocks(getBlocks());
 
     // Busca eventos em tempo real do Google Calendar API (fonte da verdade)
-    fetch('/api/calendar')
+    fetch(`/api/calendar?t=${Date.now()}`, {
+      headers: {
+        'Cache-Control': 'no-cache',
+        'Pragma': 'no-cache'
+      }
+    })
       .then((res) => {
         if (!res.ok) throw new Error('Falha ao buscar eventos do Google Agenda');
         return res.json();
@@ -251,7 +256,7 @@ const AdminPanel = () => {
       time: manualTime,
       name: manualName,
       phone: manualPhone.replace(/\D/g, ''),
-      status: 'pending',
+      status: 'accepted',
     };
 
     // Immediate local feedback
@@ -500,9 +505,7 @@ const AdminPanel = () => {
               {/* Sub-tabs de Filtragem */}
               <div className="flex gap-2 flex-wrap pb-3 border-b border-primary/5">
                 {([
-                  { key: 'all', label: 'Todos', count: bookings.length + blocks.length },
-                  { key: 'pending', label: 'Pendentes', count: pendingCount, color: 'text-amber-400' },
-                  { key: 'accepted', label: 'Aceitos', count: acceptedCount, color: 'text-emerald-400' },
+                  { key: 'accepted', label: 'Todos', count: acceptedCount, color: 'text-emerald-400' },
                   { key: 'completed', label: 'Concluídos', count: completed.length, color: 'text-primary' },
                   { key: 'blocks', label: 'Bloqueios', count: blocks.length, color: 'text-destructive' }
                 ] as const).map(sf => (
@@ -529,9 +532,7 @@ const AdminPanel = () => {
                 <div className="text-center py-16">
                   <CalendarDays className="w-12 h-12 text-muted-foreground/30 mx-auto mb-4" />
                   <p className="text-muted-foreground">
-                    {subFilter === 'all' && 'Nenhum agendamento pendente ou bloqueio ativo'}
-                    {subFilter === 'pending' && 'Nenhum agendamento pendente/aguardando'}
-                    {subFilter === 'accepted' && 'Nenhum agendamento aceito'}
+                    {subFilter === 'accepted' && 'Nenhum agendamento confirmado'}
                     {subFilter === 'completed' && 'Nenhum agendamento concluído no histórico'}
                     {subFilter === 'blocks' && 'Nenhum horário bloqueado'}
                   </p>
