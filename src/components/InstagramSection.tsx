@@ -16,7 +16,7 @@ const InstagramSection = () => (
         className="w-full h-auto max-h-[500px] object-contain rounded-2xl"
       />
       <a
-        href="https://www.instagram.com/studiogabynogueira/"
+        href="https://www.instagram.com/studio_gabynogueira/"
         target="_blank"
         rel="noopener noreferrer"
         className="flex items-center justify-center gap-2 w-full py-4 bg-gradient-to-tr from-purple-600 to-pink-500 rounded-xl font-bold text-foreground transition-all hover:opacity-90"
