@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { Booking, SERVICES, generateWhatsAppUrl, formatPhone, ScheduleBlock } from '@/lib/types';
 import { getBookings, saveBookings, getCompleted, saveCompleted, addCompleted, removeCompleted, addBooking, getBlocks, saveBlocks, addBlock, removeBlock } from '@/lib/bookingStore';
 import { useNavigate } from 'react-router-dom';
-import { CalendarDays, DollarSign, Scissors, TrendingUp, ArrowLeft, Plus, X, Check, Clock, Pencil, Trash2, Phone } from 'lucide-react';
+import { CalendarDays, DollarSign, Scissors, TrendingUp, ArrowLeft, Plus, X, Check, Clock, Pencil, Trash2, Phone, Search } from 'lucide-react';
 
 const REFUSE_REASONS = ['Imprevisto', 'Indisponibilidade', 'Problema pessoal', 'Horário não disponível'];
 
@@ -17,6 +17,8 @@ const AdminPanel = () => {
   const [refusingId, setRefusingId] = useState<string | null>(null);
   const [filter, setFilter] = useState<FilterType>('month');
   const [subFilter, setSubFilter] = useState<'all' | 'pending' | 'accepted' | 'completed' | 'blocks'>('accepted');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterDate, setFilterDate] = useState('');
 
   // Edit state
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -444,6 +446,36 @@ const AdminPanel = () => {
     return agendaItems.sort((a, b) => a.timestamp - b.timestamp);
   }, [bookings, blocks, completed, subFilter]);
 
+  const filteredAgenda = useMemo(() => {
+    let items = unifiedAgenda;
+
+    // Filter by text search (case-insensitive)
+    if (searchTerm.trim() !== '') {
+      const cleanSearch = searchTerm.toLowerCase().trim();
+      items = items.filter(item => {
+        if (item.type === 'booking') {
+          const b = item.raw;
+          return (b.name || '').toLowerCase().includes(cleanSearch) ||
+                 (b.service || '').toLowerCase().includes(cleanSearch) ||
+                 (b.phone || '').toLowerCase().includes(cleanSearch);
+        } else if (item.type === 'block') {
+          const bl = item.raw;
+          return (bl.reason || '').toLowerCase().includes(cleanSearch);
+        }
+        return false;
+      });
+    }
+
+    // Filter by date (convert YYYY-MM-DD -> DD/MM/YYYY)
+    if (filterDate) {
+      const [y, m, d] = filterDate.split('-');
+      const formattedDate = `${d}/${m}/${y}`;
+      items = items.filter(item => item.raw.date === formattedDate);
+    }
+
+    return items;
+  }, [unifiedAgenda, searchTerm, filterDate]);
+
   const tabs: { key: TabType; label: string; icon: React.ReactNode; badge?: number }[] = [
     { key: 'bookings', label: 'Agendamentos', icon: <CalendarDays className="w-4 h-4" />, badge: bookings.length + blocks.length },
     { key: 'dashboard', label: 'Dashboard', icon: <TrendingUp className="w-4 h-4" /> },
@@ -528,18 +560,78 @@ const AdminPanel = () => {
                 ))}
               </div>
 
-              {unifiedAgenda.length === 0 && (
-                <div className="text-center py-16">
-                  <CalendarDays className="w-12 h-12 text-muted-foreground/30 mx-auto mb-4" />
-                  <p className="text-muted-foreground">
-                    {subFilter === 'accepted' && 'Nenhum agendamento confirmado'}
-                    {subFilter === 'completed' && 'Nenhum agendamento concluído no histórico'}
-                    {subFilter === 'blocks' && 'Nenhum horário bloqueado'}
+              {/* Search & Date Filter Bar */}
+              <div className="flex items-center bg-card/50 backdrop-blur-sm border border-primary/10 rounded-xl px-3 h-10 w-full text-xs gap-2 relative overflow-hidden">
+                <div className="flex items-center gap-2 flex-1 h-full min-w-0">
+                  <Search className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+                  <input
+                    type="text"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    placeholder="Pesquisar..."
+                    className="bg-transparent border-none outline-none text-foreground placeholder:text-muted-foreground/40 w-full h-full text-xs min-w-0"
+                  />
+                </div>
+                
+                {searchTerm && (
+                  <button
+                    onClick={() => setSearchTerm('')}
+                    className="p-1 text-muted-foreground/60 hover:text-foreground transition-colors flex-shrink-0"
+                    title="Limpar busca"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+                
+                <div className="h-4 w-px bg-primary/10 flex-shrink-0" />
+                
+                <div className="relative flex items-center justify-center h-full px-1.5 gap-1.5 cursor-pointer hover:bg-primary/5 rounded-lg transition-colors flex-shrink-0">
+                  <CalendarDays className="w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
+                  {filterDate ? (
+                    <span className="text-[10px] font-mono text-primary font-bold pointer-events-none">
+                      {(() => {
+                        const [y, m, d] = filterDate.split('-');
+                        return `${d}/${m}`;
+                      })()}
+                    </span>
+                  ) : (
+                    <span className="text-[10px] text-muted-foreground hidden sm:inline pointer-events-none">Data</span>
+                  )}
+                  <input
+                    type="date"
+                    value={filterDate}
+                    onChange={(e) => setFilterDate(e.target.value)}
+                    className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                    style={{ colorScheme: 'dark' }}
+                  />
+                </div>
+
+                {filterDate && (
+                  <button
+                    onClick={() => setFilterDate('')}
+                    className="p-1 text-muted-foreground/60 hover:text-foreground transition-colors flex-shrink-0"
+                    title="Limpar data"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+
+              {filteredAgenda.length === 0 && (
+                <div className="text-center py-16 opacity-60">
+                  <p className="text-muted-foreground text-sm font-medium">
+                    {searchTerm || filterDate ? 'Nenhum agendamento encontrado.' : (
+                      <>
+                        {subFilter === 'accepted' && 'Nenhum agendamento confirmado'}
+                        {subFilter === 'completed' && 'Nenhum agendamento concluído no histórico'}
+                        {subFilter === 'blocks' && 'Nenhum horário bloqueado'}
+                      </>
+                    )}
                   </p>
                 </div>
               )}
 
-              {unifiedAgenda.map(item => {
+              {filteredAgenda.map(item => {
                 if (item.type === 'booking') {
                   const a = item.raw;
                   return (
