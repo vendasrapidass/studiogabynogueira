@@ -17,9 +17,13 @@ const HeroSection = () => {
   return (
     <section className="relative h-screen w-full flex items-center justify-center overflow-hidden">
       <img
-        src="https://i.imgur.com/EcTYFNk.jpeg"
+        src="https://i.imgur.com/EcTYFNk.webp"
         alt="STUDIO GABY NOGUEIRA"
         className="absolute inset-0 w-full h-full object-cover opacity-30"
+        loading="eager"
+        fetchPriority="high"
+        width={1069}
+        height={1600}
       />
       <div className="absolute inset-0 bg-gradient-to-t from-background via-transparent to-transparent" />
 

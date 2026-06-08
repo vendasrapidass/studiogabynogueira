@@ -44,9 +44,12 @@ const LocationSection = () => {
         </button>
 
         <img
-          src="https://i.imgur.com/fXzy800.png"
+          src="https://i.imgur.com/fXzy800.webp"
           alt="Fachada do Studio"
           className="w-full h-48 md:h-64 object-cover rounded-2xl"
+          loading="lazy"
+          width={2539}
+          height={850}
         />
 
         <div className="text-center">

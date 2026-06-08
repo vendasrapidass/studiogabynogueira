@@ -19,9 +19,12 @@ const BioSection = () => {
             
             {/* Main Image */}
             <img
-              src="https://i.imgur.com/r7gD5UX.jpeg"
+              src="https://i.imgur.com/r7gD5UX.webp"
               alt="Gabrielly - Lash & Nail Designer"
               className="w-full h-full object-cover rounded-3xl card-shadow border border-border"
+              loading="lazy"
+              width={320}
+              height={450}
             />
           </div>
         </motion.div>

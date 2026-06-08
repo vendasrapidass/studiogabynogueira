@@ -49,6 +49,8 @@ const GallerySection = () => {
             src={img}
             alt={`Trabalho ${i + 1}`}
             loading="lazy"
+            width={256}
+            height={320}
             className="h-72 md:h-80 w-56 md:w-64 object-cover rounded-2xl flex-shrink-0 hover:scale-105 transition-transform duration-500 cursor-pointer card-shadow"
           />
         ))}

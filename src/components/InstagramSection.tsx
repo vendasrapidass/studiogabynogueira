@@ -11,9 +11,12 @@ const InstagramSection = () => (
     >
       <h2 className="text-2xl md:text-3xl font-bold text-center">Siga no Instagram</h2>
       <img
-        src="https://i.imgur.com/ISJy6O0.jpeg"
+        src="https://i.imgur.com/ISJy6O0.webp"
         alt="Instagram STUDIO GABY NOGUEIRA"
-        className="w-full h-auto max-h-[500px] object-contain rounded-2xl"
+        className="w-full h-auto aspect-square max-w-[500px] mx-auto object-contain rounded-2xl"
+        loading="lazy"
+        width={1600}
+        height={1600}
       />
       <a
         href="https://www.instagram.com/studio_gabynogueira/"
