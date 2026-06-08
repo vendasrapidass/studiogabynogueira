@@ -41,7 +41,7 @@ const BioSection = () => {
           
           <div className="glass p-6 md:p-8 rounded-2xl border border-border/60 card-shadow space-y-4">
             <p className="text-lg text-foreground/90 leading-relaxed font-medium">
-              Sou Gabrielly, 20 anos, Lash Designer há 2 anos e Nail Designer em ascensão.
+              Sou Gabrielly, 21 anos, Lash e Nail Designer Especializada.
             </p>
             <p className="text-muted-foreground leading-relaxed">
               Tenho como missão unir beleza, saúde e praticidade para realçar o que há de mais bonito em cada mulher — sem exageros e com muito carinho.
