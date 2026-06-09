@@ -1217,25 +1217,29 @@ const AdminPanel = () => {
                     </select>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4 w-full">
-                    <div>
-                      <label className="block text-xs uppercase text-zinc-400 tracking-wider font-semibold mb-2">NOVA DATA</label>
-                      <input
-                        type="date"
+                  <div className="flex w-full gap-4 mt-4">
+                    <div className="flex-1 min-w-0 flex flex-col">
+                      <label className="text-xs font-semibold text-gray-400 tracking-wider mb-2">
+                        NOVA DATA
+                      </label>
+                      <input 
+                        type="date" 
+                        className="w-full bg-[#27272a] rounded-lg p-3 text-white border border-transparent outline-none focus:border-zinc-500"
                         value={editBookingDate}
                         onChange={(e) => setEditBookingDate(e.target.value)}
-                        className="w-full mt-1.5 bg-zinc-800/60 rounded-lg p-2.5 text-white border border-transparent outline-none focus:border-zinc-600 transition-colors"
                         style={{ colorScheme: 'dark' }}
                       />
                     </div>
 
-                    <div>
-                      <label className="block text-xs uppercase text-zinc-400 tracking-wider font-semibold mb-2">NOVO HORÁRIO</label>
-                      <input
-                        type="time"
+                    <div className="flex-1 min-w-0 flex flex-col">
+                      <label className="text-xs font-semibold text-gray-400 tracking-wider mb-2">
+                        NOVO HORÁRIO
+                      </label>
+                      <input 
+                        type="time" 
+                        className="w-full bg-[#27272a] rounded-lg p-3 text-white border border-transparent outline-none focus:border-zinc-500"
                         value={editBookingTime}
                         onChange={(e) => setEditBookingTime(e.target.value)}
-                        className="w-full mt-1.5 bg-zinc-800/60 rounded-lg p-2.5 text-white border border-transparent outline-none focus:border-zinc-600 transition-colors"
                         style={{ colorScheme: 'dark' }}
                       />
                     </div>
