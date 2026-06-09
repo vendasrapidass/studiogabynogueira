@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { Booking, SERVICES, generateWhatsAppUrl, formatPhone, ScheduleBlock } from '@/lib/types';
 import { getBookings, saveBookings, getCompleted, saveCompleted, addCompleted, removeCompleted, addBooking, getBlocks, saveBlocks, addBlock, removeBlock } from '@/lib/bookingStore';
 import { useNavigate } from 'react-router-dom';
+import { toast } from 'sonner';
 import { CalendarDays, DollarSign, Scissors, TrendingUp, ArrowLeft, Plus, X, Check, Clock, Pencil, Trash2, Phone, Search } from 'lucide-react';
 
 const REFUSE_REASONS = ['Imprevisto', 'Indisponibilidade', 'Problema pessoal', 'Horário não disponível'];
@@ -19,6 +20,12 @@ const AdminPanel = () => {
   const [subFilter, setSubFilter] = useState<'all' | 'pending' | 'accepted' | 'completed' | 'blocks'>('accepted');
   const [searchTerm, setSearchTerm] = useState('');
   const [filterDate, setFilterDate] = useState('');
+
+  // Edit Booking (active) state
+  const [editingBooking, setEditingBooking] = useState<Booking | null>(null);
+  const [editBookingDate, setEditBookingDate] = useState('');
+  const [editBookingTime, setEditBookingTime] = useState('');
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
 
   // Edit state
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -239,6 +246,64 @@ const AdminPanel = () => {
     saveCompleted(updated);
     setCompleted(updated);
     setEditingId(null);
+  };
+
+  // Start editing active booking
+  const startEditBooking = (b: Booking) => {
+    setEditingBooking(b);
+    const [d, m, y] = b.date.split('/');
+    setEditBookingDate(`${y}-${m}-${d}`);
+    setEditBookingTime(b.time);
+  };
+
+  // Save active booking edit and sync with calendar API
+  const handleSaveEditBooking = () => {
+    if (!editingBooking || !editBookingDate || !editBookingTime) return;
+
+    setIsSavingEdit(true);
+
+    const [y, m, d] = editBookingDate.split('-');
+    const formattedDate = `${d}/${m}/${y}`;
+
+    const updatedBooking: Booking = {
+      ...editingBooking,
+      date: formattedDate,
+      time: editBookingTime,
+    };
+
+    fetch('/api/calendar', {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        id: editingBooking.id,
+        type: 'booking',
+        booking: updatedBooking,
+        duration: getBookingDuration(editingBooking.service),
+      }),
+    })
+      .then((res) => {
+        if (!res.ok) throw new Error('Falha ao remarcar agendamento');
+        return res.json();
+      })
+      .then(() => {
+        const updatedBookings = bookings.map((b) =>
+          b.id === editingBooking.id ? updatedBooking : b
+        );
+        saveBookings(updatedBookings);
+        setBookings(updatedBookings);
+
+        setEditingBooking(null);
+        setIsSavingEdit(false);
+        toast.success('Agendamento editado com sucesso!');
+        reload();
+      })
+      .catch((err) => {
+        console.error("Error editing booking:", err);
+        toast.error('Ocorreu um erro ao salvar as alterações.');
+        setIsSavingEdit(false);
+      });
   };
 
   // Manual add → goes to BOOKINGS (agendados), not completed
@@ -672,6 +737,13 @@ const AdminPanel = () => {
                           ) : (
                             <div className="flex gap-2">
                               <button
+                                onClick={() => startEditBooking(a)}
+                                className="px-3.5 py-2 bg-secondary text-muted-foreground border border-primary/10 hover:border-primary/30 hover:text-foreground rounded-xl text-xs font-bold transition-all hover:scale-105 active:scale-95 flex items-center gap-1.5"
+                                title="Editar agendamento"
+                              >
+                                <Pencil className="w-3.5 h-3.5" /> Editar
+                              </button>
+                              <button
                                 onClick={() => handleFinalize(a)}
                                 className="px-4 py-2 bg-primary text-primary-foreground rounded-xl text-xs font-bold transition-all hover:shadow-[0_0_20px_-5px_hsl(6_48%_68%/0.4)] hover:scale-105 active:scale-95 flex items-center gap-1.5"
                               >
@@ -1082,6 +1154,64 @@ const AdminPanel = () => {
                   </div>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* Edit Booking Modal */}
+          {editingBooking && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-sm">
+              <div className="bg-card w-full max-w-sm rounded-3xl border border-primary/15 card-shadow p-6 md:p-8 relative space-y-6">
+                <button
+                  onClick={() => setEditingBooking(null)}
+                  className="absolute top-4 right-4 text-muted-foreground hover:text-foreground transition-colors p-1"
+                  title="Fechar"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+
+                <div className="space-y-1">
+                  <h3 className="text-lg font-bold text-foreground">Editar Agendamento</h3>
+                  <p className="text-xs text-muted-foreground">{editingBooking.name} — {editingBooking.service}</p>
+                </div>
+
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-xs uppercase tracking-widest text-muted-foreground mb-2 font-semibold">Nova Data</label>
+                    <input
+                      type="date"
+                      value={editBookingDate}
+                      onChange={(e) => setEditBookingDate(e.target.value)}
+                      className="w-full bg-secondary border border-primary/10 rounded-xl p-3.5 focus:border-primary outline-none transition-colors text-foreground placeholder:text-muted-foreground/40 text-sm"
+                      style={{ colorScheme: 'dark' }}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs uppercase tracking-widest text-muted-foreground mb-2 font-semibold">Novo Horário</label>
+                    <input
+                      type="time"
+                      value={editBookingTime}
+                      onChange={(e) => setEditBookingTime(e.target.value)}
+                      className="w-full bg-secondary border border-primary/10 rounded-xl p-3.5 focus:border-primary outline-none transition-colors text-foreground placeholder:text-muted-foreground/40 text-sm"
+                    />
+                  </div>
+
+                  <button
+                    onClick={handleSaveEditBooking}
+                    disabled={isSavingEdit || !editBookingDate || !editBookingTime}
+                    className="w-full py-4 bg-primary text-primary-foreground font-bold rounded-xl transition-all hover:shadow-[0_0_25px_-5px_hsl(6_48%_68%/0.5)] hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  >
+                    {isSavingEdit ? (
+                      <>
+                        <div className="w-4 h-4 rounded-full border-2 border-primary-foreground/30 border-t-primary-foreground animate-spin" />
+                        Salvando...
+                      </>
+                    ) : (
+                      'Salvar Alterações'
+                    )}
+                  </button>
+                </div>
+              </div>
             </div>
           )}
         </div>
