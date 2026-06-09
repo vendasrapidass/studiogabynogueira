@@ -255,7 +255,7 @@ export default async function handler(req: any, res: any) {
         const endDateTime = `${isoDate}T${pad(endHour)}:${pad(endMinute)}:00`;
 
         const title = `${booking.service} - ${booking.name}`;
-        const description = `Cliente: ${booking.name}\nContato: ${booking.phone}`;
+        const description = `Cliente: ${booking.name}\nContato: ${booking.phone}\nValor: R$ ${booking.price},00`;
 
         await calendar.events.insert({
           calendarId,
@@ -362,7 +362,7 @@ export default async function handler(req: any, res: any) {
         else if (booking.status === 'completed') suffix = ' [Concluído]';
 
         const title = `${booking.service} - ${booking.name}${suffix}`;
-        const description = `Cliente: ${booking.name}\nContato: ${booking.phone}`;
+        const description = `Cliente: ${booking.name}\nContato: ${booking.phone}\nValor: R$ ${booking.price},00`;
 
         await calendar.events.update({
           calendarId,

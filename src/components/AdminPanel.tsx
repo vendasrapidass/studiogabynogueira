@@ -25,6 +25,8 @@ const AdminPanel = () => {
   const [editingBooking, setEditingBooking] = useState<Booking | null>(null);
   const [editBookingDate, setEditBookingDate] = useState('');
   const [editBookingTime, setEditBookingTime] = useState('');
+  const [editBookingService, setEditBookingService] = useState('');
+  const [editBookingPrice, setEditBookingPrice] = useState<number>(0);
   const [isSavingEdit, setIsSavingEdit] = useState(false);
 
   // Edit state
@@ -254,11 +256,22 @@ const AdminPanel = () => {
     const [d, m, y] = b.date.split('/');
     setEditBookingDate(`${y}-${m}-${d}`);
     setEditBookingTime(b.time);
+    setEditBookingService(b.service);
+    setEditBookingPrice(b.price);
+  };
+
+  // Handle service change with dynamic price update
+  const handleServiceChange = (serviceName: string) => {
+    setEditBookingService(serviceName);
+    const svc = SERVICES.find(s => s.name === serviceName);
+    if (svc) {
+      setEditBookingPrice(svc.price);
+    }
   };
 
   // Save active booking edit and sync with calendar API
   const handleSaveEditBooking = () => {
-    if (!editingBooking || !editBookingDate || !editBookingTime) return;
+    if (!editingBooking || !editBookingService || !editBookingDate || !editBookingTime) return;
 
     setIsSavingEdit(true);
 
@@ -267,6 +280,8 @@ const AdminPanel = () => {
 
     const updatedBooking: Booking = {
       ...editingBooking,
+      service: editBookingService,
+      price: editBookingPrice,
       date: formattedDate,
       time: editBookingTime,
     };
@@ -280,7 +295,7 @@ const AdminPanel = () => {
         id: editingBooking.id,
         type: 'booking',
         booking: updatedBooking,
-        duration: getBookingDuration(editingBooking.service),
+        duration: getBookingDuration(updatedBooking.service),
       }),
     })
       .then((res) => {
@@ -737,13 +752,6 @@ const AdminPanel = () => {
                           ) : (
                             <div className="flex gap-2">
                               <button
-                                onClick={() => startEditBooking(a)}
-                                className="px-3.5 py-2 bg-secondary text-muted-foreground border border-primary/10 hover:border-primary/30 hover:text-foreground rounded-xl text-xs font-bold transition-all hover:scale-105 active:scale-95 flex items-center gap-1.5"
-                                title="Editar agendamento"
-                              >
-                                <Pencil className="w-3.5 h-3.5" /> Editar
-                              </button>
-                              <button
                                 onClick={() => handleFinalize(a)}
                                 className="px-4 py-2 bg-primary text-primary-foreground rounded-xl text-xs font-bold transition-all hover:shadow-[0_0_20px_-5px_hsl(6_48%_68%/0.4)] hover:scale-105 active:scale-95 flex items-center gap-1.5"
                               >
@@ -754,6 +762,13 @@ const AdminPanel = () => {
                                 className="px-4 py-2 bg-destructive/10 text-destructive border border-destructive/20 rounded-xl text-xs font-bold transition-all hover:bg-destructive hover:text-destructive-foreground hover:scale-105 active:scale-95 flex items-center gap-1.5"
                               >
                                 <X className="w-3.5 h-3.5" /> Cancelar
+                              </button>
+                              <button
+                                onClick={() => startEditBooking(a)}
+                                className="px-3.5 py-2 bg-transparent text-muted-foreground/60 border border-primary/5 hover:border-primary/20 hover:text-foreground rounded-xl text-xs font-bold transition-all hover:scale-105 active:scale-95 flex items-center gap-1.5"
+                                title="Editar agendamento"
+                              >
+                                <Pencil className="w-3.5 h-3.5" /> Editar
                               </button>
                             </div>
                           )}
@@ -1171,34 +1186,56 @@ const AdminPanel = () => {
 
                 <div className="space-y-1">
                   <h3 className="text-lg font-bold text-foreground">Editar Agendamento</h3>
-                  <p className="text-xs text-muted-foreground">{editingBooking.name} — {editingBooking.service}</p>
+                  <p className="text-xs text-muted-foreground">Cliente: {editingBooking.name}</p>
                 </div>
 
                 <div className="space-y-4">
                   <div>
-                    <label className="block text-xs uppercase tracking-widest text-muted-foreground mb-2 font-semibold">Nova Data</label>
+                    <label className="block text-xs uppercase text-zinc-400 tracking-wider font-semibold mb-2">Serviço</label>
+                    <select
+                      value={editBookingService}
+                      onChange={(e) => handleServiceChange(e.target.value)}
+                      className="w-full bg-zinc-800 border-none rounded-xl p-3.5 focus:ring-1 focus:ring-primary outline-none text-foreground text-sm"
+                      style={{ colorScheme: 'dark' }}
+                    >
+                      {SERVICES.map((s) => (
+                        <option key={s.name} value={s.name} className="bg-zinc-900 text-foreground">
+                          {s.name} (R$ {s.price},00)
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs uppercase text-zinc-400 tracking-wider font-semibold mb-2">Nova Data</label>
                     <input
                       type="date"
                       value={editBookingDate}
                       onChange={(e) => setEditBookingDate(e.target.value)}
-                      className="w-full bg-secondary border border-primary/10 rounded-xl p-3.5 focus:border-primary outline-none transition-colors text-foreground placeholder:text-muted-foreground/40 text-sm"
+                      className="w-full bg-zinc-800 border-none rounded-xl p-3.5 focus:ring-1 focus:ring-primary outline-none transition-colors text-foreground placeholder:text-muted-foreground/40 text-sm"
                       style={{ colorScheme: 'dark' }}
                     />
                   </div>
 
                   <div>
-                    <label className="block text-xs uppercase tracking-widest text-muted-foreground mb-2 font-semibold">Novo Horário</label>
+                    <label className="block text-xs uppercase text-zinc-400 tracking-wider font-semibold mb-2">Novo Horário</label>
                     <input
                       type="time"
                       value={editBookingTime}
                       onChange={(e) => setEditBookingTime(e.target.value)}
-                      className="w-full bg-secondary border border-primary/10 rounded-xl p-3.5 focus:border-primary outline-none transition-colors text-foreground placeholder:text-muted-foreground/40 text-sm"
+                      className="w-full bg-zinc-800 border-none rounded-xl p-3.5 focus:ring-1 focus:ring-primary outline-none transition-colors text-foreground placeholder:text-muted-foreground/40 text-sm"
+                      style={{ colorScheme: 'dark' }}
                     />
+                  </div>
+
+                  <div className="flex justify-between items-center bg-zinc-800/40 p-4 rounded-xl border border-primary/5">
+                    <span className="text-xs uppercase text-zinc-400 tracking-wider font-semibold">Valor do Serviço</span>
+                    <span className="text-base font-mono font-bold text-primary">R$ {editBookingPrice},00</span>
                   </div>
 
                   <button
                     onClick={handleSaveEditBooking}
-                    disabled={isSavingEdit || !editBookingDate || !editBookingTime}
+                    disabled={isSavingEdit || !editBookingDate || !editBookingTime || !editBookingService}
                     className="w-full py-4 bg-primary text-primary-foreground font-bold rounded-xl transition-all hover:shadow-[0_0_25px_-5px_hsl(6_48%_68%/0.5)] hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                   >
                     {isSavingEdit ? (
