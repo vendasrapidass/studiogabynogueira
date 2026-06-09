@@ -1217,25 +1217,25 @@ const AdminPanel = () => {
                     </select>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-2 gap-4 w-full">
                     <div>
-                      <label className="block text-xs uppercase text-zinc-400 tracking-wider font-semibold mb-2">Nova Data</label>
+                      <label className="block text-xs uppercase text-zinc-400 tracking-wider font-semibold mb-2">NOVA DATA</label>
                       <input
                         type="date"
                         value={editBookingDate}
                         onChange={(e) => setEditBookingDate(e.target.value)}
-                        className="w-full bg-zinc-800 border-none rounded-xl p-3.5 focus:ring-1 focus:ring-primary outline-none transition-colors text-foreground placeholder:text-muted-foreground/40 text-sm"
+                        className="w-full bg-zinc-800/50 rounded-lg p-3 text-white border border-transparent focus:border-rose-400 outline-none"
                         style={{ colorScheme: 'dark' }}
                       />
                     </div>
 
                     <div>
-                      <label className="block text-xs uppercase text-zinc-400 tracking-wider font-semibold mb-2">Novo Horário</label>
+                      <label className="block text-xs uppercase text-zinc-400 tracking-wider font-semibold mb-2">NOVO HORÁRIO</label>
                       <input
                         type="time"
                         value={editBookingTime}
                         onChange={(e) => setEditBookingTime(e.target.value)}
-                        className="w-full bg-zinc-800 border-none rounded-xl p-3.5 focus:ring-1 focus:ring-primary outline-none transition-colors text-foreground placeholder:text-muted-foreground/40 text-sm"
+                        className="w-full bg-zinc-800/50 rounded-lg p-3 text-white border border-transparent focus:border-rose-400 outline-none"
                         style={{ colorScheme: 'dark' }}
                       />
                     </div>
