@@ -1217,37 +1217,27 @@ const AdminPanel = () => {
                     </select>
                   </div>
 
-                  {/* Contêiner Pai Invisível usando Grid */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 w-full mt-4">
-                    
-                    {/* Coluna 1: Data */}
-                    <div className="flex flex-col w-full">
-                      <label className="text-xs font-semibold text-gray-400 tracking-wider mb-1.5">
-                        NOVA DATA
-                      </label>
+                  <div className="flex flex-row items-center gap-3 w-full mt-4">
+                    <div className="w-1/2">
+                      <label className="text-xs font-semibold text-gray-400 tracking-wider mb-2 block">NOVA DATA</label>
                       <input 
                         type="date" 
-                        className="w-full bg-[#27272a] rounded-lg px-3 py-2.5 text-sm text-white border border-transparent outline-none focus:border-zinc-500 transition-colors"
+                        className="w-full bg-[#27272a] rounded-lg p-3 text-white border border-transparent outline-none focus:border-zinc-500"
                         value={editBookingDate}
                         onChange={(e) => setEditBookingDate(e.target.value)}
                         style={{ colorScheme: 'dark' }}
                       />
                     </div>
-
-                    {/* Coluna 2: Horário */}
-                    <div className="flex flex-col w-full">
-                      <label className="text-xs font-semibold text-gray-400 tracking-wider mb-1.5">
-                        NOVO HORÁRIO
-                      </label>
+                    <div className="w-1/2">
+                      <label className="text-xs font-semibold text-gray-400 tracking-wider mb-2 block">NOVO HORÁRIO</label>
                       <input 
                         type="time" 
-                        className="w-full bg-[#27272a] rounded-lg px-3 py-2.5 text-sm text-white border border-transparent outline-none focus:border-zinc-500 transition-colors"
+                        className="w-full bg-[#27272a] rounded-lg p-3 text-white border border-transparent outline-none focus:border-zinc-500"
                         value={editBookingTime}
                         onChange={(e) => setEditBookingTime(e.target.value)}
                         style={{ colorScheme: 'dark' }}
                       />
                     </div>
-
                   </div>
 
                   <div className="flex justify-between items-center bg-zinc-800/40 p-4 rounded-xl border border-primary/5">
