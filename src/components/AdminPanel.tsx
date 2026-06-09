@@ -1186,7 +1186,7 @@ const AdminPanel = () => {
           {/* Edit Booking Modal */}
           {editingBooking && (
             <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-sm">
-              <div className="bg-card w-full max-w-sm rounded-3xl border border-primary/15 card-shadow p-6 md:p-8 relative space-y-6">
+              <div className="w-[95%] max-w-md mx-auto bg-zinc-950 rounded-2xl border border-primary/15 card-shadow p-6 md:p-8 relative space-y-6">
                 <button
                   onClick={() => setEditingBooking(null)}
                   className="absolute top-4 right-4 text-muted-foreground hover:text-foreground transition-colors p-1"
@@ -1218,7 +1218,7 @@ const AdminPanel = () => {
                   </div>
 
                   {/* Contêiner Pai Invisível usando Grid */}
-                  <div className="grid grid-cols-2 gap-4 w-full mt-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 w-full mt-4">
                     
                     {/* Coluna 1: Data */}
                     <div className="flex flex-col w-full">
