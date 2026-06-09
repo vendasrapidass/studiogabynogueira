@@ -573,11 +573,14 @@ const AdminPanel = () => {
                   />
                 </div>
                 
-                {searchTerm && (
+                {(searchTerm || filterDate) && (
                   <button
-                    onClick={() => setSearchTerm('')}
-                    className="p-1 text-muted-foreground/60 hover:text-foreground transition-colors flex-shrink-0"
-                    title="Limpar busca"
+                    onClick={() => {
+                      setSearchTerm('');
+                      setFilterDate('');
+                    }}
+                    className="p-3 -ml-2 text-muted-foreground/60 hover:text-foreground transition-colors flex-shrink-0 cursor-pointer z-20 relative"
+                    title="Limpar filtros"
                   >
                     <X className="w-3.5 h-3.5" />
                   </button>
@@ -601,20 +604,10 @@ const AdminPanel = () => {
                     type="date"
                     value={filterDate}
                     onChange={(e) => setFilterDate(e.target.value)}
-                    className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                    className="absolute inset-0 opacity-0 cursor-pointer w-full h-full z-10"
                     style={{ colorScheme: 'dark' }}
                   />
                 </div>
-
-                {filterDate && (
-                  <button
-                    onClick={() => setFilterDate('')}
-                    className="p-1 text-muted-foreground/60 hover:text-foreground transition-colors flex-shrink-0"
-                    title="Limpar data"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                )}
               </div>
 
               {filteredAgenda.length === 0 && (
