@@ -1224,7 +1224,7 @@ const AdminPanel = () => {
                         type="date"
                         value={editBookingDate}
                         onChange={(e) => setEditBookingDate(e.target.value)}
-                        className="w-full bg-zinc-800/50 rounded-lg p-3 text-white border border-transparent focus:border-rose-400 outline-none"
+                        className="w-full mt-1.5 bg-zinc-800/60 rounded-lg p-2.5 text-white border border-transparent outline-none focus:border-zinc-600 transition-colors"
                         style={{ colorScheme: 'dark' }}
                       />
                     </div>
@@ -1235,7 +1235,7 @@ const AdminPanel = () => {
                         type="time"
                         value={editBookingTime}
                         onChange={(e) => setEditBookingTime(e.target.value)}
-                        className="w-full bg-zinc-800/50 rounded-lg p-3 text-white border border-transparent focus:border-rose-400 outline-none"
+                        className="w-full mt-1.5 bg-zinc-800/60 rounded-lg p-2.5 text-white border border-transparent outline-none focus:border-zinc-600 transition-colors"
                         style={{ colorScheme: 'dark' }}
                       />
                     </div>
