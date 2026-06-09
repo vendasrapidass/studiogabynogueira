@@ -28,6 +28,7 @@ const AdminPanel = () => {
   const [editBookingService, setEditBookingService] = useState('');
   const [editBookingPrice, setEditBookingPrice] = useState<number>(0);
   const [isSavingEdit, setIsSavingEdit] = useState(false);
+  const [cancellingBooking, setCancellingBooking] = useState<Booking | null>(null);
 
   // Edit state
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -200,25 +201,34 @@ const AdminPanel = () => {
       });
   };
 
-  // Cancel/delete booking from admin panel (automatically confirm deletion with prompt)
+  // Cancel/delete booking from admin panel (sets state to show custom modal)
   const handleCancelBooking = (booking: Booking) => {
-    if (window.confirm(`Deseja realmente cancelar o agendamento de ${booking.name}?`)) {
-      const updated = bookings.filter(b => b.id !== booking.id);
-      saveBookings(updated);
-      setBookings(updated);
+    setCancellingBooking(booking);
+  };
 
-      fetch(`/api/calendar?id=${booking.id}`, {
-        method: 'DELETE',
+  // Confirm cancel via custom modal and sync to API
+  const handleConfirmCancel = () => {
+    if (!cancellingBooking) return;
+    const booking = cancellingBooking;
+
+    const updated = bookings.filter(b => b.id !== booking.id);
+    saveBookings(updated);
+    setBookings(updated);
+    setCancellingBooking(null);
+
+    fetch(`/api/calendar?id=${booking.id}`, {
+      method: 'DELETE',
+    })
+      .then((res) => {
+        if (!res.ok) throw new Error('Falha ao excluir agendamento');
+        console.log("Booking deleted from Google Calendar");
+        toast.success('Agendamento cancelado com sucesso!');
+        reload();
       })
-        .then((res) => {
-          if (!res.ok) throw new Error('Falha ao excluir agendamento');
-          console.log("Booking deleted from Google Calendar");
-          reload();
-        })
-        .catch((err) => {
-          console.error("Error deleting booking in Google Calendar:", err);
-        });
-    }
+      .catch((err) => {
+        console.error("Error deleting booking in Google Calendar:", err);
+        toast.error('Erro ao cancelar agendamento.');
+      });
   };
 
   // Delete completed service
@@ -266,6 +276,7 @@ const AdminPanel = () => {
     const svc = SERVICES.find(s => s.name === serviceName);
     if (svc) {
       setEditBookingPrice(svc.price);
+      setEditingBooking(prev => prev ? { ...prev, service: serviceName, price: svc.price } : null);
     }
   };
 
@@ -1206,26 +1217,28 @@ const AdminPanel = () => {
                     </select>
                   </div>
 
-                  <div>
-                    <label className="block text-xs uppercase text-zinc-400 tracking-wider font-semibold mb-2">Nova Data</label>
-                    <input
-                      type="date"
-                      value={editBookingDate}
-                      onChange={(e) => setEditBookingDate(e.target.value)}
-                      className="w-full bg-zinc-800 border-none rounded-xl p-3.5 focus:ring-1 focus:ring-primary outline-none transition-colors text-foreground placeholder:text-muted-foreground/40 text-sm"
-                      style={{ colorScheme: 'dark' }}
-                    />
-                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs uppercase text-zinc-400 tracking-wider font-semibold mb-2">Nova Data</label>
+                      <input
+                        type="date"
+                        value={editBookingDate}
+                        onChange={(e) => setEditBookingDate(e.target.value)}
+                        className="w-full bg-zinc-800 border-none rounded-xl p-3.5 focus:ring-1 focus:ring-primary outline-none transition-colors text-foreground placeholder:text-muted-foreground/40 text-sm"
+                        style={{ colorScheme: 'dark' }}
+                      />
+                    </div>
 
-                  <div>
-                    <label className="block text-xs uppercase text-zinc-400 tracking-wider font-semibold mb-2">Novo Horário</label>
-                    <input
-                      type="time"
-                      value={editBookingTime}
-                      onChange={(e) => setEditBookingTime(e.target.value)}
-                      className="w-full bg-zinc-800 border-none rounded-xl p-3.5 focus:ring-1 focus:ring-primary outline-none transition-colors text-foreground placeholder:text-muted-foreground/40 text-sm"
-                      style={{ colorScheme: 'dark' }}
-                    />
+                    <div>
+                      <label className="block text-xs uppercase text-zinc-400 tracking-wider font-semibold mb-2">Novo Horário</label>
+                      <input
+                        type="time"
+                        value={editBookingTime}
+                        onChange={(e) => setEditBookingTime(e.target.value)}
+                        className="w-full bg-zinc-800 border-none rounded-xl p-3.5 focus:ring-1 focus:ring-primary outline-none transition-colors text-foreground placeholder:text-muted-foreground/40 text-sm"
+                        style={{ colorScheme: 'dark' }}
+                      />
+                    </div>
                   </div>
 
                   <div className="flex justify-between items-center bg-zinc-800/40 p-4 rounded-xl border border-primary/5">
@@ -1246,6 +1259,43 @@ const AdminPanel = () => {
                     ) : (
                       'Salvar Alterações'
                     )}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Custom Confirm Cancel Modal */}
+          {cancellingBooking && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-sm animate-in fade-in duration-200">
+              <div className="bg-card w-full max-w-sm rounded-3xl border border-primary/15 card-shadow p-6 md:p-8 relative space-y-6 animate-in zoom-in-95 duration-200">
+                <button
+                  onClick={() => setCancellingBooking(null)}
+                  className="absolute top-4 right-4 text-muted-foreground hover:text-foreground transition-colors p-1"
+                  title="Fechar"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+
+                <div className="space-y-2 text-center pt-2">
+                  <h3 className="text-lg font-bold text-foreground">Confirmar Cancelamento</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Tem certeza que deseja cancelar o agendamento de <span className="font-semibold text-foreground">{cancellingBooking.name}</span>?
+                  </p>
+                </div>
+
+                <div className="flex gap-3 pt-2">
+                  <button
+                    onClick={() => setCancellingBooking(null)}
+                    className="flex-1 py-3 bg-secondary text-muted-foreground hover:text-foreground hover:bg-secondary/80 rounded-xl text-xs font-bold transition-all"
+                  >
+                    Voltar
+                  </button>
+                  <button
+                    onClick={handleConfirmCancel}
+                    className="flex-1 py-3 bg-destructive/15 text-destructive hover:bg-destructive hover:text-destructive-foreground border border-destructive/20 rounded-xl text-xs font-bold transition-all"
+                  >
+                    Sim, Cancelar
                   </button>
                 </div>
               </div>
