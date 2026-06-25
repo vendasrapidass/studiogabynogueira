@@ -242,8 +242,11 @@ const BookingSection = () => {
         duration: totalDuration,
       }),
     })
-      .then((res) => {
-        if (!res.ok) throw new Error('Falha na API de sincronização');
+      .then(async (res) => {
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw errData;
+        }
         return res.json();
       })
       .then((data) => {
@@ -252,7 +255,27 @@ const BookingSection = () => {
       })
       .catch((err) => {
         console.error("Error syncing booking to Google Calendar:", err);
-        finishBooking(); // Prossiga mesmo com erro no sync para garantir a experiência do usuário
+        setIsSubmitting(false);
+
+        if (err && err.error === 'slot_occupied') {
+          alert(err.message || "Este horário acabou de ser preenchido, por favor selecione outro.");
+          setStep(3);
+          setSelectedTime('');
+          
+          fetch('/api/calendar')
+            .then((res) => res.json())
+            .then((data) => {
+              if (Array.isArray(data.bookings)) {
+                setGoogleBookings(data.bookings);
+              }
+              if (Array.isArray(data.blocks)) {
+                setGoogleBlocks(data.blocks);
+              }
+            })
+            .catch((fetchErr) => console.error("Error reloading events:", fetchErr));
+        } else {
+          alert("Ocorreu um erro ao salvar o agendamento. Por favor, tente novamente.");
+        }
       });
   };
 

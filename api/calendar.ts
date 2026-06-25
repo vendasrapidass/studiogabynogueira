@@ -13,6 +13,35 @@ const auth = new google.auth.GoogleAuth({
 
 const calendar = google.calendar({ version: 'v3', auth });
 
+function parseDateTimeToSaoPaulo(isoString: string) {
+  try {
+    const dObj = new Date(isoString);
+    const formatter = new Intl.DateTimeFormat('pt-BR', {
+      timeZone: 'America/Sao_Paulo',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    });
+    const parts = formatter.formatToParts(dObj);
+    const day = parts.find(p => p.type === 'day')?.value || '';
+    const month = parts.find(p => p.type === 'month')?.value || '';
+    const year = parts.find(p => p.type === 'year')?.value || '';
+    const hour = parts.find(p => p.type === 'hour')?.value || '';
+    const minute = parts.find(p => p.type === 'minute')?.value || '00';
+    
+    return {
+      date: `${day}/${month}/${year}`,
+      time: `${hour}:${minute}`
+    };
+  } catch (err) {
+    console.error("Error parsing date-time:", err);
+    return null;
+  }
+}
+
 export default async function handler(req: any, res: any) {
   // CORS Headers
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -71,23 +100,26 @@ export default async function handler(req: any, res: any) {
 
         if (isBlock) {
           const allDay = shared?.allDay === 'true' || !!event.start?.date;
-          let startVal: string | undefined;
-          let endVal: string | undefined;
+          let startVal = shared?.start;
+          let endVal = shared?.end;
+          let dateVal = shared?.date || '';
 
           if (!allDay && event.start?.dateTime && event.end?.dateTime) {
-            const startTimePart = event.start.dateTime.split('T')[1];
-            const endTimePart = event.end.dateTime.split('T')[1];
-            if (startTimePart && endTimePart) {
-              startVal = startTimePart.substring(0, 5);
-              endVal = endTimePart.substring(0, 5);
+            const parsedStart = parseDateTimeToSaoPaulo(event.start.dateTime);
+            const parsedEnd = parseDateTimeToSaoPaulo(event.end.dateTime);
+            if (parsedStart && parsedEnd) {
+              dateVal = parsedStart.date;
+              startVal = parsedStart.time;
+              endVal = parsedEnd.time;
             }
           }
 
-          let dateVal = '';
-          const startString = event.start?.date || event.start?.dateTime;
-          if (startString) {
-            const [y, m, d] = startString.split('T')[0].split('-');
-            dateVal = `${d}/${m}/${y}`;
+          if (!dateVal) {
+            const startString = event.start?.date || event.start?.dateTime;
+            if (startString) {
+              const [y, m, d] = startString.split('T')[0].split('-');
+              dateVal = `${d}/${m}/${y}`;
+            }
           }
           if (!dateVal) {
             const dObj = new Date();
@@ -193,17 +225,17 @@ export default async function handler(req: any, res: any) {
           // 4. Correção de Datas Vazias
           let dateVal = '';
           let timeVal = '';
-          
-          const startString = event.start?.dateTime || event.start?.date;
-          if (startString) {
-            const [dStr, tStr] = startString.split('T');
-            const [y, m, d] = dStr.split('-');
-            dateVal = `${d}/${m}/${y}`;
-            if (tStr) {
-              timeVal = tStr.substring(0, 5);
-            } else {
-              timeVal = '08:00';
+
+          if (event.start?.dateTime) {
+            const parsed = parseDateTimeToSaoPaulo(event.start.dateTime);
+            if (parsed) {
+              dateVal = parsed.date;
+              timeVal = parsed.time;
             }
+          } else if (event.start?.date) {
+            const [y, m, d] = event.start.date.split('-');
+            dateVal = `${d}/${m}/${y}`;
+            timeVal = '08:00';
           }
 
           if (!dateVal) {
@@ -253,6 +285,127 @@ export default async function handler(req: any, res: any) {
         }
         const pad = (n: number) => String(n).padStart(2, '0');
         const endDateTime = `${isoDate}T${pad(endHour)}:${pad(endMinute)}:00`;
+
+        // --- CHECK DOUBLE BOOKING ---
+        // Fetch all events for that specific date to verify no overlap occurred
+        const timeMin = `${isoDate}T00:00:00-03:00`;
+        const timeMax = `${isoDate}T23:59:59-03:00`;
+
+        const listResponse = await calendar.events.list({
+          calendarId,
+          timeMin,
+          timeMax,
+          singleEvents: true,
+        });
+
+        const existingEvents = listResponse.data.items || [];
+        const timeToMinutes = (t: string) => {
+          const [h, mi] = t.split(':').map(Number);
+          return h * 60 + mi;
+        };
+
+        const getBookingDuration = (serviceName: string): number => {
+          const SERVICES = [
+            { name: 'Alongamento (Fibra de vidro)', time: 180 },
+            { name: 'Manutenção de alongamento', time: 180 },
+            { name: 'Banho de Gel', time: 180 },
+            { name: 'Esmaltação em Gel', time: 120 },
+            { name: 'Remoção', time: 120 },
+            { name: 'Efeito Molhado (Aplicação)', time: 180 },
+            { name: 'Volume Brasileiro (Aplicação)', time: 180 },
+            { name: 'Volume Egípcio 3D (Aplicação)', time: 180 },
+            { name: 'Efeito Sirena (Aplicação)', time: 180 },
+            { name: 'Efeito Fox (Aplicação)', time: 180 },
+            { name: 'Volume Inglês 5D (Aplicação)', time: 180 },
+            { name: 'Volume Luxo 6D (Aplicação)', time: 180 },
+            { name: 'Remoção (Cílios)', time: 60 },
+            { name: 'Efeito Molhado (Manutenção)', time: 180 },
+            { name: 'Volume Brasileiro (Manutenção)', time: 180 },
+            { name: 'Volume Egípcio 3D (Manutenção)', time: 180 },
+            { name: 'Efeito Sirena (Manutenção)', time: 180 },
+            { name: 'Efeito Fox (Manutenção)', time: 180 },
+            { name: 'Volume Inglês 5D (Manutenção)', time: 180 },
+            { name: 'Volume Luxo 6D (Manutenção)', time: 180 }
+          ];
+          const names = serviceName.split(' + ');
+          let total = 0;
+          names.forEach(name => {
+            const svc = SERVICES.find(s => s.name === name);
+            if (svc) total += svc.time;
+          });
+          return total || 180;
+        };
+
+        const newStart = timeToMinutes(booking.time);
+        const newEnd = newStart + (duration || 180);
+
+        for (const existingEvent of existingEvents) {
+          if (existingEvent.id === eventId) continue;
+
+          const shared = existingEvent.extendedProperties?.shared;
+          const summary = existingEvent.summary || '';
+          const summaryLower = summary.toLowerCase();
+
+          const hasBlockKeyword = summaryLower.includes('folga') || 
+                                  summaryLower.includes('bloqueado') || 
+                                  summaryLower.includes('bloqueio') ||
+                                  summaryLower.includes('indisponível') ||
+                                  summaryLower.includes('indisponivel');
+          const hasDashSeparator = summary.includes(' - ');
+          const isBlock = shared?.type === 'block' || hasBlockKeyword || !hasDashSeparator;
+
+          if (isBlock) {
+            const allDay = shared?.allDay === 'true' || !!existingEvent.start?.date;
+            if (allDay) {
+              return res.status(409).json({ error: 'slot_occupied', message: 'Este dia está bloqueado para agendamentos.' });
+            }
+            let blockStartVal = shared?.start;
+            let blockEndVal = shared?.end;
+            if (!blockStartVal && existingEvent.start?.dateTime && existingEvent.end?.dateTime) {
+              const parsedStart = parseDateTimeToSaoPaulo(existingEvent.start.dateTime);
+              const parsedEnd = parseDateTimeToSaoPaulo(existingEvent.end.dateTime);
+              if (parsedStart && parsedEnd) {
+                blockStartVal = parsedStart.time;
+                blockEndVal = parsedEnd.time;
+              }
+            }
+            if (blockStartVal && blockEndVal) {
+              const bStart = timeToMinutes(blockStartVal);
+              const bEnd = timeToMinutes(blockEndVal);
+              if (Math.max(newStart, bStart) < Math.min(newEnd, bEnd)) {
+                return res.status(409).json({ error: 'slot_occupied', message: 'Este horário está em um período bloqueado.' });
+              }
+            }
+          } else {
+            let bookingTimeVal = shared?.time;
+            if (!bookingTimeVal && existingEvent.start?.dateTime) {
+              const parsedStart = parseDateTimeToSaoPaulo(existingEvent.start.dateTime);
+              if (parsedStart) {
+                bookingTimeVal = parsedStart.time;
+              }
+            }
+            if (!bookingTimeVal) bookingTimeVal = '08:00';
+
+            let bookingService = shared?.service || '';
+            if (!bookingService) {
+              const parts = summary.split(' - ');
+              if (parts.length >= 2) {
+                bookingService = parts.slice(0, -1).join(' - ').trim();
+              } else {
+                bookingService = summary;
+              }
+            }
+
+            const bStart = timeToMinutes(bookingTimeVal);
+            const bDuration = getBookingDuration(bookingService);
+            const bEnd = bStart + bDuration;
+
+            if (Math.max(newStart, bStart) < Math.min(newEnd, bEnd)) {
+              return res.status(409).json({ error: 'slot_occupied', message: 'Este horário já foi agendado por outra pessoa.' });
+            }
+          }
+        }
+        // --- END CHECK DOUBLE BOOKING ---
 
         const title = `${booking.service} - ${booking.name}`;
         const description = `Cliente: ${booking.name}\nContato: ${booking.phone}\nValor: R$ ${booking.price},00`;
