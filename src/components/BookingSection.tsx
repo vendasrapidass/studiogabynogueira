@@ -6,9 +6,13 @@ import { Calendar } from '@/components/ui/calendar';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { CheckCircle, X, Plus } from 'lucide-react';
+import { CheckCircle, X, Plus, Copy, Upload, Image as ImageIcon, Loader2 } from 'lucide-react';
 
 type ServiceType = typeof SERVICES[0];
+
+const PIX_KEY = 'COLOQUE_SUA_CHAVE_PIX_AQUI'; // A chave Pix (email, telefone, cpf ou aleatória)
+const SINAL_VALUE = 30; // O valor fixo do sinal em reais
+const IMGUR_CLIENT_ID = 'COLOQUE_SEU_CLIENT_ID_DO_IMGUR_AQUI'; // Necessário para hospedar a foto do comprovante
 
 const BookingSection = () => {
   const [step, setStep] = useState(1);
@@ -21,6 +25,24 @@ const BookingSection = () => {
   const [phone, setPhone] = useState('');
   const [showSuccess, setShowSuccess] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Estados do Modal Pix
+  const [showPixModal, setShowPixModal] = useState(false);
+  const [pixCopiado, setPixCopiado] = useState(false);
+  
+  // Estados de Upload do Comprovante
+  const [comprovanteFile, setComprovanteFile] = useState<File | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const [comprovanteError, setComprovanteError] = useState('');
+
+  // Tratar Cancelamentos Inesperados
+  useEffect(() => {
+    if (!showPixModal) {
+      setComprovanteFile(null);
+      setComprovanteError('');
+      setPixCopiado(false);
+    }
+  }, [showPixModal]);
 
   const totalDuration = useMemo(() => {
     if (!selectedService) return 0;
@@ -197,7 +219,7 @@ const BookingSection = () => {
     setStep(4);
   };
 
-  const handleConfirm = () => {
+  const finishBookingFlow = (comprovanteUrl?: string) => {
     if (!name.trim() || !phone.trim() || !selectedService || !selectedDate || !selectedTime) return;
 
     const dateStr = format(selectedDate, 'dd/MM/yyyy');
@@ -214,9 +236,16 @@ const BookingSection = () => {
 
     setIsSubmitting(true);
 
-    const finishBooking = () => {
+    const executeFinish = () => {
       addBooking(booking);
-      const msg = `✨ STUDIO GABY NOGUEIRA ✨\n\nOlá! 🌸\nMeu nome é ${booking.name}.\nMeu agendamento foi realizado com sucesso:\n\n📋 Serviço: ${booking.service}\n💰 Valor: R$ ${booking.price},00\n📅 Data: ${booking.date}\n🕐 Horário: ${booking.time}\n📱 Meu WhatsApp: ${booking.phone}\n\nObrigado! 💕`;
+      let msg = `✨ STUDIO GABY NOGUEIRA ✨\n\nOlá! 🌸\nMeu nome é ${booking.name}.\nMeu agendamento foi realizado com sucesso:\n\n📋 Serviço: ${booking.service}\n💰 Valor Total: R$ ${booking.price},00\n📅 Data: ${booking.date}\n🕐 Horário: ${booking.time}\n📱 Meu WhatsApp: ${booking.phone}`;
+      
+      if (comprovanteUrl) {
+        msg += `\n\n💵 *Sinal Pago:* R$ ${SINAL_VALUE},00\n🧾 *Comprovante do Sinal:*\n${comprovanteUrl}`;
+      }
+      
+      msg += `\n\nObrigado! 💕`;
+
       window.location.href = generateWhatsAppUrl(WHATSAPP_NUMBER, msg);
 
       setIsSubmitting(false);
@@ -251,7 +280,7 @@ const BookingSection = () => {
       })
       .then((data) => {
         console.log("Booking synced to Google Calendar:", data);
-        finishBooking();
+        executeFinish();
       })
       .catch((err) => {
         console.error("Error syncing booking to Google Calendar:", err);
@@ -277,6 +306,49 @@ const BookingSection = () => {
           alert("Ocorreu um erro ao salvar o agendamento. Por favor, tente novamente.");
         }
       });
+  };
+
+  const handleConfirm = () => {
+    if (!name.trim() || !phone.trim() || !selectedService || !selectedDate || !selectedTime) return;
+    // Sinal obrigatório para todas as clientes
+    setShowPixModal(true);
+  };
+
+  const handlePixSubmit = async () => {
+    if (!comprovanteFile) {
+      setComprovanteError('O comprovante é obrigatório para garantir o horário.');
+      return;
+    }
+    setIsUploading(true);
+    setComprovanteError('');
+    try {
+      const formData = new FormData();
+      formData.append('image', comprovanteFile);
+      
+      const res = await fetch('https://api.imgur.com/3/image', {
+        method: 'POST',
+        headers: { Authorization: `Client-ID ${IMGUR_CLIENT_ID}` },
+        body: formData,
+      });
+      
+      const data = await res.json();
+      if (data.success) {
+        const comprovanteUrl = data.data.link;
+        setShowPixModal(false);
+        finishBookingFlow(comprovanteUrl); 
+      } else {
+        throw new Error('Falha ao enviar imagem para o Imgur');
+      }
+    } catch (error) {
+      setComprovanteError('Erro ao enviar comprovante. Verifique sua conexão e tente novamente.');
+      setIsUploading(false);
+    }
+  };
+
+  const handleCopyPix = () => {
+    navigator.clipboard.writeText(PIX_KEY);
+    setPixCopiado(true);
+    setTimeout(() => setPixCopiado(false), 2000);
   };
 
   const goBack = () => {
@@ -515,6 +587,116 @@ const BookingSection = () => {
               <p className="text-muted-foreground text-sm">
                 Seu agendamento foi enviado com sucesso. Aguarde a confirmação do Studio pelo WhatsApp.
               </p>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Modal Pix */}
+      <AnimatePresence>
+        {showPixModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-background/90 backdrop-blur-sm"
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-card p-6 md:p-8 rounded-3xl card-shadow w-full max-w-md border border-primary/20 relative text-center space-y-6 overflow-y-auto max-h-[90vh] no-scrollbar"
+            >
+              <button
+                onClick={() => setShowPixModal(false)}
+                className="absolute top-4 right-4 text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+
+              <div className="space-y-2">
+                <h3 className="text-2xl font-bold text-foreground">Sinal de Agendamento</h3>
+                <p className="text-sm text-muted-foreground">
+                  Para garantir seu horário, pedimos um sinal de <strong className="text-primary">R$ {SINAL_VALUE},00</strong> via Pix. 
+                  O valor será abatido do total no dia do atendimento.
+                </p>
+              </div>
+
+              {/* QR Code */}
+              <div className="flex justify-center p-2">
+                <div className="bg-white p-3 rounded-xl">
+                  <img 
+                    src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${PIX_KEY}`}
+                    alt="QR Code Pix"
+                    className="w-40 h-40"
+                  />
+                </div>
+              </div>
+
+              {/* Chave Pix */}
+              <div className="space-y-2 text-left">
+                <label className="text-xs uppercase tracking-widest text-muted-foreground">Chave Pix Copia e Cola</label>
+                <div className="flex gap-2">
+                  <input 
+                    type="text" 
+                    readOnly 
+                    value={PIX_KEY} 
+                    className="flex-1 bg-secondary border border-border rounded-xl px-4 text-sm text-foreground outline-none"
+                  />
+                  <button 
+                    onClick={handleCopyPix}
+                    className="bg-primary/10 text-primary hover:bg-primary/20 p-3 rounded-xl transition-colors flex items-center justify-center min-w-[48px]"
+                  >
+                    {pixCopiado ? <CheckCircle className="w-5 h-5 text-success" /> : <Copy className="w-5 h-5" />}
+                  </button>
+                </div>
+              </div>
+
+              {/* Anexar Comprovante */}
+              <div className="space-y-2 text-left pt-2 border-t border-border mt-4">
+                <label className="text-xs uppercase tracking-widest text-muted-foreground block mb-2">Comprovante de Pagamento</label>
+                <div className="relative">
+                  <input 
+                    type="file" 
+                    accept="image/*"
+                    onChange={(e) => setComprovanteFile(e.target.files?.[0] || null)}
+                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                  />
+                  <div className={cn(
+                    "w-full bg-secondary border-2 border-dashed rounded-xl p-4 flex flex-col items-center justify-center gap-2 transition-colors",
+                    comprovanteFile ? "border-primary/50 text-primary" : "border-border text-muted-foreground hover:border-primary/30"
+                  )}>
+                    {comprovanteFile ? (
+                      <>
+                        <ImageIcon className="w-6 h-6" />
+                        <span className="text-sm font-medium text-center truncate w-full px-4">{comprovanteFile.name}</span>
+                      </>
+                    ) : (
+                      <>
+                        <Upload className="w-6 h-6" />
+                        <span className="text-sm font-medium">Toque para anexar a foto</span>
+                      </>
+                    )}
+                  </div>
+                </div>
+                {comprovanteError && <p className="text-destructive text-xs mt-1 font-medium">{comprovanteError}</p>}
+              </div>
+
+              {/* Submit Button */}
+              <button
+                onClick={handlePixSubmit}
+                disabled={isUploading || !comprovanteFile}
+                className="w-full py-4 bg-primary text-primary-foreground font-bold rounded-xl glow-shadow disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-[0.98] flex items-center justify-center gap-2 mt-4"
+              >
+                {isUploading ? (
+                  <>
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    Enviando...
+                  </>
+                ) : (
+                  'Confirmar Agendamento'
+                )}
+              </button>
             </motion.div>
           </motion.div>
         )}
