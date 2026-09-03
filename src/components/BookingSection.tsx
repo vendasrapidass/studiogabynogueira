@@ -10,9 +10,9 @@ import { CheckCircle, X, Plus, Copy, Upload, Image as ImageIcon, Loader2 } from 
 
 type ServiceType = typeof SERVICES[0];
 
-const PIX_KEY = 'COLOQUE_SUA_CHAVE_PIX_AQUI'; // A chave Pix (email, telefone, cpf ou aleatória)
+const PIX_KEY = '00020101021226740014BR.GOV.BCB.PIX0126gabynogueira05@outlook.com0222Pagamento gabrielly-no520400005303986540530.005802BR5925GABRIELLY NOGUEIRA DE LIM6009ARAUCARIA62290525QRCCxbXvuUWYVjWqa4zozvCg36304250E'; // A chave Pix (email, telefone, cpf ou aleatória)
 const SINAL_VALUE = 30; // O valor fixo do sinal em reais
-const IMGUR_CLIENT_ID = 'COLOQUE_SEU_CLIENT_ID_DO_IMGUR_AQUI'; // Necessário para hospedar a foto do comprovante
+const IMGUR_CLIENT_ID = '546c25a59c58ad7'; // Necessário para hospedar a foto do comprovante
 
 const BookingSection = () => {
   const [step, setStep] = useState(1);
@@ -626,7 +626,7 @@ const BookingSection = () => {
               <div className="flex justify-center p-2">
                 <div className="bg-white p-3 rounded-xl">
                   <img 
-                    src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${PIX_KEY}`}
+                    src="/qr-code-pix.png"
                     alt="QR Code Pix"
                     className="w-40 h-40"
                   />
