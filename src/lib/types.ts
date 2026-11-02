@@ -82,23 +82,23 @@ export function getTimesForDate(date: Date): string[] {
   const day = date.getDay();
   if (day === 0) return []; // Domingos: Fechado
 
-  // Sábados (08:30, 12:30 e 15:30)
+  const isDecember = date.getMonth() === 11; // Dezembro (mês 11 em JavaScript)
+
+  if (isDecember) {
+    // Sábados de dezembro: 08:00, 11:00 e 14:00
+    if (day === 6) {
+      return ['08:00', '11:00', '14:00'];
+    }
+    // Segunda a Sexta em dezembro: todos os horários liberados para que ela bloqueie pelo painel o que não atender
+    return ['08:00', '11:00', '14:00', '17:00', '19:30'];
+  }
+
+  // Sábados nos demais meses (ex: Novembro)
   if (day === 6) {
     return ['08:30', '12:30', '15:30'];
   }
 
-  const isDecember = date.getMonth() === 11; // Dezembro (mês 11 em JavaScript)
-
-  if (isDecember) {
-    // Terça (2) e Quinta (4): atende o dia todo sem ir para a academia (inclui horário das 11:00)
-    if (day === 2 || day === 4) {
-      return ['08:00', '11:00', '14:00', '17:00', '19:30'];
-    }
-    // Segunda (1), Quarta (3) e Sexta (5): vai para a academia no almoço (sem o horário das 11:00)
-    return ['08:00', '14:00', '17:00', '19:30'];
-  }
-
-  // Segunda a Sexta nos demais meses (ex: Novembro): Horários normais
+  // Segunda a Sexta nos demais meses (ex: Novembro): Horários normais liberados
   return ['08:00', '14:00', '17:00', '17:30', '18:00', '18:30'];
 }
 
