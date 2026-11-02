@@ -122,11 +122,12 @@ const BookingSection = () => {
         // Lunch break check:
         // Weekdays: 12:00 to 13:00 (720 to 780 minutes)
         // Saturdays: 11:30 to 12:30 (690 to 750 minutes)
+        // Permite horários configurados diretamente como 11:00 (dias sem academia)
         const isSaturday = selectedDate.getDay() === 6;
         const lunchStart = isSaturday ? 690 : 720;
         const lunchEnd = isSaturday ? 750 : 780;
 
-        const overlapsLunch = Math.max(start, lunchStart) < Math.min(end, lunchEnd);
+        const overlapsLunch = timeStr !== '11:00' && Math.max(start, lunchStart) < Math.min(end, lunchEnd);
         if (overlapsLunch) {
           return false;
         }

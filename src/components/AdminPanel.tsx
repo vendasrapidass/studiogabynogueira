@@ -102,7 +102,7 @@ const AdminPanel = () => {
       const svc = SERVICES.find(s => s.name === name);
       if (svc) total += svc.time;
     });
-    return total || 180;
+    return total || 150;
   };
 
   // Accept booking → send WhatsApp confirmation, mark as accepted
@@ -357,7 +357,7 @@ const AdminPanel = () => {
     
     // Find service duration
     const svc = SERVICES.find(s => s.name === manualService);
-    const duration = svc ? svc.time : 180;
+    const duration = svc ? svc.time : 150;
 
     // Sync manual booking to Google Calendar via Serverless API
     fetch('/api/calendar', {

@@ -28,30 +28,30 @@ export interface Booking {
 
 export const SERVICES: Service[] = [
   // Categoria: Unhas
-  { name: 'Alongamento (Fibra de vidro)', time: 180, price: 150, image: 'https://i.imgur.com/AJQylcN.webp', category: 'Unhas' },
-  { name: 'Manutenção de alongamento', time: 180, price: 110, image: 'https://i.imgur.com/Fy4vWem.webp', category: 'Unhas' },
-  { name: 'Banho de Gel', time: 180, price: 100, image: 'https://i.imgur.com/158QzCm.webp', category: 'Unhas' },
+  { name: 'Alongamento (Fibra de vidro)', time: 150, price: 150, image: 'https://i.imgur.com/AJQylcN.webp', category: 'Unhas' },
+  { name: 'Manutenção de alongamento', time: 150, price: 110, image: 'https://i.imgur.com/Fy4vWem.webp', category: 'Unhas' },
+  { name: 'Banho de Gel', time: 150, price: 100, image: 'https://i.imgur.com/158QzCm.webp', category: 'Unhas' },
   { name: 'Esmaltação em Gel', time: 120, price: 70, image: 'https://i.imgur.com/rGFS09Y.webp', category: 'Unhas' },
   { name: 'Remoção', time: 120, price: 25, image: 'https://i.imgur.com/b2U1d2I.webp', category: 'Unhas' },
 
   // Categoria: Cílios - Aplicação
-  { name: 'Efeito Molhado (Aplicação)', time: 180, price: 135, image: 'https://i.imgur.com/XWtg2Hu.webp', category: 'Cílios - Aplicação' },
-  { name: 'Volume Brasileiro (Aplicação)', time: 180, price: 145, image: 'https://i.imgur.com/WRS7NWw.webp', category: 'Cílios - Aplicação' },
-  { name: 'Volume Egípcio 3D (Aplicação)', time: 180, price: 150, image: 'https://i.imgur.com/aIBWRgv.webp', category: 'Cílios - Aplicação' },
-  { name: 'Efeito Sirena (Aplicação)', time: 180, price: 145, image: 'https://i.imgur.com/lqyeUni.webp', category: 'Cílios - Aplicação' },
-  { name: 'Efeito Fox Eyes (Aplicação)', time: 180, price: 160, image: 'https://i.imgur.com/231xZUC.webp', category: 'Cílios - Aplicação' },
-  { name: 'Volume Inglês 5D (Aplicação)', time: 180, price: 165, image: 'https://i.imgur.com/tczQCXR.webp', category: 'Cílios - Aplicação' },
-  { name: 'Volume Luxo 6D (Aplicação)', time: 180, price: 170, image: 'https://i.imgur.com/MRHHhmd.webp', category: 'Cílios - Aplicação' },
+  { name: 'Efeito Molhado (Aplicação)', time: 150, price: 135, image: 'https://i.imgur.com/XWtg2Hu.webp', category: 'Cílios - Aplicação' },
+  { name: 'Volume Brasileiro (Aplicação)', time: 150, price: 145, image: 'https://i.imgur.com/WRS7NWw.webp', category: 'Cílios - Aplicação' },
+  { name: 'Volume Egípcio 3D (Aplicação)', time: 150, price: 150, image: 'https://i.imgur.com/aIBWRgv.webp', category: 'Cílios - Aplicação' },
+  { name: 'Efeito Sirena (Aplicação)', time: 150, price: 145, image: 'https://i.imgur.com/lqyeUni.webp', category: 'Cílios - Aplicação' },
+  { name: 'Efeito Fox Eyes (Aplicação)', time: 150, price: 160, image: 'https://i.imgur.com/231xZUC.webp', category: 'Cílios - Aplicação' },
+  { name: 'Volume Inglês 5D (Aplicação)', time: 150, price: 165, image: 'https://i.imgur.com/tczQCXR.webp', category: 'Cílios - Aplicação' },
+  { name: 'Volume Luxo 6D (Aplicação)', time: 150, price: 170, image: 'https://i.imgur.com/MRHHhmd.webp', category: 'Cílios - Aplicação' },
   { name: 'Remoção (Cílios)', time: 60, price: 20, image: 'https://i.imgur.com/EWYwzY0.webp', category: 'Cílios - Aplicação' },
 
   // Categoria: Cílios - Manutenção
-  { name: 'Efeito Molhado (Manutenção)', time: 180, price: 95, image: 'https://i.imgur.com/XWtg2Hu.webp', category: 'Cílios - Manutenção' },
-  { name: 'Volume Brasileiro (Manutenção)', time: 180, price: 100, image: 'https://i.imgur.com/WRS7NWw.webp', category: 'Cílios - Manutenção' },
-  { name: 'Volume Egípcio 3D (Manutenção)', time: 180, price: 110, image: 'https://i.imgur.com/aIBWRgv.webp', category: 'Cílios - Manutenção' },
-  { name: 'Efeito Sirena (Manutenção)', time: 180, price: 100, image: 'https://i.imgur.com/lqyeUni.webp', category: 'Cílios - Manutenção' },
-  { name: 'Efeito Fox Eyes (Manutenção)', time: 180, price: 110, image: 'https://i.imgur.com/231xZUC.webp', category: 'Cílios - Manutenção' },
-  { name: 'Volume Inglês 5D (Manutenção)', time: 180, price: 115, image: 'https://i.imgur.com/tczQCXR.webp', category: 'Cílios - Manutenção' },
-  { name: 'Volume Luxo 6D (Manutenção)', time: 180, price: 120, image: 'https://i.imgur.com/MRHHhmd.webp', category: 'Cílios - Manutenção' },
+  { name: 'Efeito Molhado (Manutenção)', time: 150, price: 95, image: 'https://i.imgur.com/XWtg2Hu.webp', category: 'Cílios - Manutenção' },
+  { name: 'Volume Brasileiro (Manutenção)', time: 150, price: 100, image: 'https://i.imgur.com/WRS7NWw.webp', category: 'Cílios - Manutenção' },
+  { name: 'Volume Egípcio 3D (Manutenção)', time: 150, price: 110, image: 'https://i.imgur.com/aIBWRgv.webp', category: 'Cílios - Manutenção' },
+  { name: 'Efeito Sirena (Manutenção)', time: 150, price: 100, image: 'https://i.imgur.com/lqyeUni.webp', category: 'Cílios - Manutenção' },
+  { name: 'Efeito Fox Eyes (Manutenção)', time: 150, price: 110, image: 'https://i.imgur.com/231xZUC.webp', category: 'Cílios - Manutenção' },
+  { name: 'Volume Inglês 5D (Manutenção)', time: 150, price: 115, image: 'https://i.imgur.com/tczQCXR.webp', category: 'Cílios - Manutenção' },
+  { name: 'Volume Luxo 6D (Manutenção)', time: 150, price: 120, image: 'https://i.imgur.com/MRHHhmd.webp', category: 'Cílios - Manutenção' },
 ];
 
 export const GALLERY_IMAGES = [
@@ -71,7 +71,7 @@ export function isOpenNow(): boolean {
   const timeValue = hour * 60 + minute;
 
   if (day === 0) return false;
-  return timeValue >= 480 && timeValue < 1200; // 08:00 to 20:00
+  return timeValue >= 480 && timeValue < 1320; // 08:00 to 22:00
 }
 
 export function isDayAllowed(date: Date): boolean {
@@ -80,12 +80,25 @@ export function isDayAllowed(date: Date): boolean {
 
 export function getTimesForDate(date: Date): string[] {
   const day = date.getDay();
-  if (day === 0) return []; // Domingos
+  if (day === 0) return []; // Domingos: Fechado
+
+  // Sábados (08:30, 12:30 e 15:30)
   if (day === 6) {
-    // Sábados: 08:30, 12:30 e 15:30
     return ['08:30', '12:30', '15:30'];
   }
-  // Segunda a Sexta: 08:00, 14:00, 17:00, 17:30, 18:00 e 18:30
+
+  const isDecember = date.getMonth() === 11; // Dezembro (mês 11 em JavaScript)
+
+  if (isDecember) {
+    // Terça (2) e Quinta (4): atende o dia todo sem ir para a academia (inclui horário das 11:00)
+    if (day === 2 || day === 4) {
+      return ['08:00', '11:00', '14:00', '17:00', '19:30'];
+    }
+    // Segunda (1), Quarta (3) e Sexta (5): vai para a academia no almoço (sem o horário das 11:00)
+    return ['08:00', '14:00', '17:00', '19:30'];
+  }
+
+  // Segunda a Sexta nos demais meses (ex: Novembro): Horários normais
   return ['08:00', '14:00', '17:00', '17:30', '18:00', '18:30'];
 }
 
@@ -98,7 +111,7 @@ export function getBookingDuration(serviceName: string): number {
       total += svc.time;
     }
   });
-  return total || 180; // default to 180min if unknown (lash designer standard)
+  return total || 150; // default to 150min (2h30)
 }
 
 export function generateWhatsAppUrl(phone: string, message: string): string {

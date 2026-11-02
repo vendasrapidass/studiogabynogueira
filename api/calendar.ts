@@ -278,7 +278,7 @@ export default async function handler(req: any, res: any) {
         // Cálculo determinístico do término baseado nos minutos de duração
         const [hour, minute] = booking.time.split(':').map(Number);
         let endHour = hour;
-        let endMinute = minute + (duration || 180);
+        let endMinute = minute + (duration || 150);
         if (endMinute >= 60) {
           endHour += Math.floor(endMinute / 60);
           endMinute = endMinute % 60;
@@ -306,26 +306,28 @@ export default async function handler(req: any, res: any) {
 
         const getBookingDuration = (serviceName: string): number => {
           const SERVICES = [
-            { name: 'Alongamento (Fibra de vidro)', time: 180 },
-            { name: 'Manutenção de alongamento', time: 180 },
-            { name: 'Banho de Gel', time: 180 },
+            { name: 'Alongamento (Fibra de vidro)', time: 150 },
+            { name: 'Manutenção de alongamento', time: 150 },
+            { name: 'Banho de Gel', time: 150 },
             { name: 'Esmaltação em Gel', time: 120 },
             { name: 'Remoção', time: 120 },
-            { name: 'Efeito Molhado (Aplicação)', time: 180 },
-            { name: 'Volume Brasileiro (Aplicação)', time: 180 },
-            { name: 'Volume Egípcio 3D (Aplicação)', time: 180 },
-            { name: 'Efeito Sirena (Aplicação)', time: 180 },
-            { name: 'Efeito Fox (Aplicação)', time: 180 },
-            { name: 'Volume Inglês 5D (Aplicação)', time: 180 },
-            { name: 'Volume Luxo 6D (Aplicação)', time: 180 },
+            { name: 'Efeito Molhado (Aplicação)', time: 150 },
+            { name: 'Volume Brasileiro (Aplicação)', time: 150 },
+            { name: 'Volume Egípcio 3D (Aplicação)', time: 150 },
+            { name: 'Efeito Sirena (Aplicação)', time: 150 },
+            { name: 'Efeito Fox (Aplicação)', time: 150 },
+            { name: 'Efeito Fox Eyes (Aplicação)', time: 150 },
+            { name: 'Volume Inglês 5D (Aplicação)', time: 150 },
+            { name: 'Volume Luxo 6D (Aplicação)', time: 150 },
             { name: 'Remoção (Cílios)', time: 60 },
-            { name: 'Efeito Molhado (Manutenção)', time: 180 },
-            { name: 'Volume Brasileiro (Manutenção)', time: 180 },
-            { name: 'Volume Egípcio 3D (Manutenção)', time: 180 },
-            { name: 'Efeito Sirena (Manutenção)', time: 180 },
-            { name: 'Efeito Fox (Manutenção)', time: 180 },
-            { name: 'Volume Inglês 5D (Manutenção)', time: 180 },
-            { name: 'Volume Luxo 6D (Manutenção)', time: 180 }
+            { name: 'Efeito Molhado (Manutenção)', time: 150 },
+            { name: 'Volume Brasileiro (Manutenção)', time: 150 },
+            { name: 'Volume Egípcio 3D (Manutenção)', time: 150 },
+            { name: 'Efeito Sirena (Manutenção)', time: 150 },
+            { name: 'Efeito Fox (Manutenção)', time: 150 },
+            { name: 'Efeito Fox Eyes (Manutenção)', time: 150 },
+            { name: 'Volume Inglês 5D (Manutenção)', time: 150 },
+            { name: 'Volume Luxo 6D (Manutenção)', time: 150 }
           ];
           const names = serviceName.split(' + ');
           let total = 0;
@@ -333,11 +335,11 @@ export default async function handler(req: any, res: any) {
             const svc = SERVICES.find(s => s.name === name);
             if (svc) total += svc.time;
           });
-          return total || 180;
+          return total || 150;
         };
 
         const newStart = timeToMinutes(booking.time);
-        const newEnd = newStart + (duration || 180);
+        const newEnd = newStart + (duration || 150);
 
         for (const existingEvent of existingEvents) {
           if (existingEvent.id === eventId) continue;
@@ -502,7 +504,7 @@ export default async function handler(req: any, res: any) {
 
         const [hour, minute] = booking.time.split(':').map(Number);
         let endHour = hour;
-        let endMinute = minute + (duration || 180);
+        let endMinute = minute + (duration || 150);
         if (endMinute >= 60) {
           endHour += Math.floor(endMinute / 60);
           endMinute = endMinute % 60;
