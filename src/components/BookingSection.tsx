@@ -12,7 +12,6 @@ type ServiceType = typeof SERVICES[0];
 
 const PIX_KEY = 'gabynogueira05@outlook.com'; // A chave Pix (email, telefone, cpf ou aleatória)
 const SINAL_VALUE = 30; // O valor fixo do sinal em reais
-const IMGUR_CLIENT_ID = '546c25a59c58ad7'; // Necessário para hospedar a foto do comprovante
 
 const BookingSection = () => {
   const [step, setStep] = useState(1);
@@ -32,6 +31,7 @@ const BookingSection = () => {
   
   // Estados de Upload do Comprovante
   const [comprovanteFile, setComprovanteFile] = useState<File | null>(null);
+  const [comprovantePreview, setComprovantePreview] = useState<string>('');
   const [isUploading, setIsUploading] = useState(false);
   const [comprovanteError, setComprovanteError] = useState('');
 
@@ -39,6 +39,7 @@ const BookingSection = () => {
   useEffect(() => {
     if (!showPixModal) {
       setComprovanteFile(null);
+      setComprovantePreview('');
       setComprovanteError('');
       setPixCopiado(false);
     }
@@ -220,7 +221,55 @@ const BookingSection = () => {
     setStep(4);
   };
 
-  const finishBookingFlow = (comprovanteUrl?: string) => {
+  const compressAndGetBase64 = (file: File): Promise<string> => {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const img = new Image();
+        img.onload = () => {
+          const maxDim = 1200;
+          let width = img.width;
+          let height = img.height;
+          if (width > maxDim || height > maxDim) {
+            if (width > height) {
+              height = Math.round((height * maxDim) / width);
+              width = maxDim;
+            } else {
+              width = Math.round((width * maxDim) / height);
+              height = maxDim;
+            }
+          }
+          const canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) return resolve((e.target?.result as string) || '');
+          ctx.drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL('image/jpeg', 0.85));
+        };
+        img.onerror = () => resolve((e.target?.result as string) || '');
+        img.src = e.target?.result as string;
+      };
+      reader.onerror = () => resolve('');
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      setComprovanteFile(file);
+      setComprovanteError('');
+      try {
+        const base64 = await compressAndGetBase64(file);
+        setComprovantePreview(base64);
+      } catch (err) {
+        console.warn('Preview error:', err);
+      }
+    }
+  };
+
+  const finishBookingFlow = async (comprovanteUrl?: string) => {
     if (!name.trim() || !phone.trim() || !selectedService || !selectedDate || !selectedTime) return;
 
     const dateStr = format(selectedDate, 'dd/MM/yyyy');
@@ -237,113 +286,111 @@ const BookingSection = () => {
 
     setIsSubmitting(true);
 
-    const executeFinish = () => {
-      addBooking(booking);
-      let msg = `✨ STUDIO GABY NOGUEIRA ✨\n\nOlá! 🌸\nMeu nome é ${booking.name}.\nMeu agendamento foi realizado com sucesso:\n\n📋 Serviço: ${booking.service}\n💰 Valor Total: R$ ${booking.price},00\n📅 Data: ${booking.date}\n🕐 Horário: ${booking.time}\n📱 Meu WhatsApp: ${booking.phone}`;
-      
-      if (comprovanteUrl) {
-        msg += `\n\n💵 *Sinal Pago:* R$ ${SINAL_VALUE},00\n🧾 *Comprovante do Sinal:*\n${comprovanteUrl}`;
-      }
-      
-      msg += `\n\nObrigado! 💕`;
+    // 1. Salva imediatamente no banco local
+    addBooking(booking);
 
-      window.location.href = generateWhatsAppUrl(WHATSAPP_NUMBER, msg);
+    // 2. Prepara mensagem para o WhatsApp com link oficial do comprovante ou fallback não-bloqueante
+    let msg = `✨ *STUDIO GABY NOGUEIRA* ✨\n\nOlá Gaby! 🌸\nMeu nome é *${booking.name}*.\nMeu agendamento foi realizado pelo site:\n\n📋 *Serviço:* ${booking.service}\n💰 *Valor Total:* R$ ${booking.price},00\n📅 *Data:* ${booking.date}\n🕐 *Horário:* ${booking.time}\n📱 *Meu WhatsApp:* ${booking.phone}\n\n💵 *Sinal Pago:* R$ ${SINAL_VALUE},00`;
 
-      setIsSubmitting(false);
-      setShowSuccess(true);
-      setStep(1);
-      setSelectedService(null);
-      setExtras([]);
-      setSelectedDate(undefined);
-      setSelectedTime('');
-      setName('');
-      setPhone('');
-    };
+    if (comprovanteUrl) {
+      msg += `\n\n🧾 *Comprovante do Sinal:*\n${comprovanteUrl}`;
+    } else {
+      msg += `\n\n🧾 *Comprovante do Sinal:*\n(Estou enviando o print em anexo aqui na conversa)`;
+    }
 
-    // Sincroniza o agendamento com o Google Calendar via API Serverless
-    fetch('/api/calendar', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        type: 'booking',
-        booking,
-        duration: totalDuration,
-      }),
-    })
-      .then(async (res) => {
-        if (!res.ok) {
-          const errData = await res.json().catch(() => ({}));
-          throw errData;
-        }
-        return res.json();
-      })
-      .then((data) => {
-        console.log("Booking synced to Google Calendar:", data);
-        executeFinish();
-      })
-      .catch((err) => {
-        console.error("Error syncing booking to Google Calendar:", err);
-        setIsSubmitting(false);
+    msg += `\n\nObrigado! 💕`;
 
-        if (err && err.error === 'slot_occupied') {
-          alert(err.message || "Este horário acabou de ser preenchido, por favor selecione outro.");
-          setStep(3);
-          setSelectedTime('');
-          
-          fetch('/api/calendar')
-            .then((res) => res.json())
-            .then((data) => {
-              if (Array.isArray(data.bookings)) {
-                setGoogleBookings(data.bookings);
-              }
-              if (Array.isArray(data.blocks)) {
-                setGoogleBlocks(data.blocks);
-              }
-            })
-            .catch((fetchErr) => console.error("Error reloading events:", fetchErr));
-        } else {
-          alert("Ocorreu um erro ao salvar o agendamento. Por favor, tente novamente.");
-        }
+    const zapUrl = generateWhatsAppUrl(WHATSAPP_NUMBER, msg);
+
+    // 3. Sincroniza com Google Calendar aguardando até 2.5s com keepalive: true
+    try {
+      const calendarPromise = fetch('/api/calendar', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          type: 'booking',
+          booking,
+          duration: totalDuration,
+        }),
+        keepalive: true,
       });
+
+      const timeoutPromise = new Promise((resolve) => setTimeout(resolve, 2500));
+      await Promise.race([calendarPromise, timeoutPromise]);
+    } catch (err) {
+      console.warn("Background Google Calendar sync error:", err);
+    }
+
+    // 4. Conclui o fluxo e abre o WhatsApp
+    setIsSubmitting(false);
+    setShowPixModal(false);
+    setShowSuccess(true);
+
+    try {
+      window.location.href = zapUrl;
+    } catch (e) {
+      console.warn("Auto-redirect to WhatsApp error:", e);
+    }
+
+    // 5. Limpa os campos do formulário
+    setStep(1);
+    setSelectedService(null);
+    setExtras([]);
+    setSelectedDate(undefined);
+    setSelectedTime('');
+    setName('');
+    setPhone('');
+    setComprovanteFile(null);
+    setComprovantePreview('');
+    setComprovanteError('');
   };
 
   const handleConfirm = () => {
     if (!name.trim() || !phone.trim() || !selectedService || !selectedDate || !selectedTime) return;
-    // Sinal obrigatório para todas as clientes
     setShowPixModal(true);
   };
 
   const handlePixSubmit = async () => {
-    if (!comprovanteFile) {
+    if (!comprovanteFile && !comprovantePreview) {
       setComprovanteError('O comprovante é obrigatório para garantir o horário.');
       return;
     }
+
     setIsUploading(true);
     setComprovanteError('');
+    let comprovanteUrl = '';
+
     try {
-      const formData = new FormData();
-      formData.append('image', comprovanteFile);
-      
-      const res = await fetch('https://api.imgur.com/3/image', {
+      let base64 = comprovantePreview;
+      if (!base64 && comprovanteFile) {
+        base64 = await compressAndGetBase64(comprovanteFile);
+      }
+
+      const res = await fetch('/api/upload', {
         method: 'POST',
-        headers: { Authorization: `Client-ID ${IMGUR_CLIENT_ID}` },
-        body: formData,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          image: base64,
+          filename: comprovanteFile?.name || 'comprovante.jpg',
+        }),
       });
-      
-      const data = await res.json();
-      if (data.success) {
-        const comprovanteUrl = data.data.link;
-        setShowPixModal(false);
-        finishBookingFlow(comprovanteUrl); 
-      } else {
-        throw new Error('Falha ao enviar imagem para o Imgur');
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && data.url) {
+          comprovanteUrl = data.url;
+        }
       }
     } catch (error) {
-      setComprovanteError('Erro ao enviar comprovante. Verifique sua conexão e tente novamente.');
+      console.warn('Upload error, fallback gracefully:', error);
+    } finally {
       setIsUploading(false);
     }
+
+    setShowPixModal(false);
+    finishBookingFlow(comprovanteUrl);
   };
 
   const handleCopyPix = () => {
@@ -660,7 +707,7 @@ const BookingSection = () => {
                   <input 
                     type="file" 
                     accept="image/*"
-                    onChange={(e) => setComprovanteFile(e.target.files?.[0] || null)}
+                    onChange={handleFileChange}
                     className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
                   />
                   <div className={cn(
@@ -686,7 +733,7 @@ const BookingSection = () => {
               {/* Submit Button */}
               <button
                 onClick={handlePixSubmit}
-                disabled={isUploading || !comprovanteFile}
+                disabled={isUploading || (!comprovanteFile && !comprovantePreview)}
                 className="w-full py-4 bg-primary text-primary-foreground font-bold rounded-xl glow-shadow disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-[0.98] flex items-center justify-center gap-2 mt-4"
               >
                 {isUploading ? (

@@ -473,7 +473,14 @@ const AdminPanel = () => {
       const date = new Date(y, m - 1, d);
       switch (filter) {
         case 'today': return date.toDateString() === now.toDateString();
-        case 'week': { const wa = new Date(now); wa.setDate(wa.getDate() - 7); return date >= wa; }
+        case 'week': {
+          const start = new Date(now);
+          start.setDate(start.getDate() - 7);
+          start.setHours(0, 0, 0, 0);
+          const end = new Date(now);
+          end.setHours(23, 59, 59, 999);
+          return date >= start && date <= end;
+        }
         case 'month': return date.getMonth() === now.getMonth() && date.getFullYear() === now.getFullYear();
         case 'year': return date.getFullYear() === now.getFullYear();
         default: return true;
@@ -481,7 +488,7 @@ const AdminPanel = () => {
     });
   }, [completed, filter]);
 
-  const totalRevenue = filteredCompleted.reduce((sum, b) => sum + b.price, 0);
+  const totalRevenue = filteredCompleted.reduce((sum, b) => sum + (Number(b.price) || 0), 0);
   const totalServices = filteredCompleted.length;
 
   const pendingCount = bookings.filter(b => b.status === 'pending').length;
@@ -877,7 +884,7 @@ const AdminPanel = () => {
                 </h3>
                 {(() => {
                   const grouped: Record<string, number> = {};
-                  filteredCompleted.forEach(b => { grouped[b.service] = (grouped[b.service] || 0) + b.price; });
+                  filteredCompleted.forEach(b => { grouped[b.service] = (grouped[b.service] || 0) + (Number(b.price) || 0); });
                   const max = Math.max(...Object.values(grouped), 1);
                   return Object.entries(grouped).length === 0 ? (
                     <p className="text-muted-foreground text-sm">Nenhum serviço concluído neste período.</p>

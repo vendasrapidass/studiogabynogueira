@@ -1,6 +1,8 @@
 import { google } from 'googleapis';
 
-const calendarId = 'guilhermesuzena10@gmail.com';
+const DEFAULT_STUDIO_CALENDAR_ID = process.env.GOOGLE_CALENDAR_ID || 'guilhermesuzena10@gmail.com';
+const DEFAULT_PROFESSIONAL_EMAIL = process.env.PROFESSIONAL_EMAIL || 'gabynogueira05@outlook.com';
+const DEVELOPER_ADMIN_EMAIL = 'guilhermesuzena10@gmail.com';
 
 // Configuração do Google Auth com a Service Account
 const auth = new google.auth.GoogleAuth({
@@ -52,6 +54,16 @@ export default async function handler(req: any, res: any) {
     return res.status(200).end();
   }
 
+  // Resolve dynamic calendarId or client override
+  const queryCalendarId = (req.query?.calendarId as string) || (req.headers?.['x-calendar-id'] as string);
+  let activeCalendarId = queryCalendarId || process.env.GOOGLE_CALENDAR_ID || DEFAULT_STUDIO_CALENDAR_ID;
+
+  // Profissional para attendees (sem incluir o desenvolvedor/administrador)
+  const professionalEmail = (process.env.PROFESSIONAL_EMAIL || DEFAULT_PROFESSIONAL_EMAIL).trim();
+  const attendeesList = professionalEmail && professionalEmail.toLowerCase() !== DEVELOPER_ADMIN_EMAIL.toLowerCase()
+    ? [{ email: professionalEmail, responseStatus: 'accepted', displayName: 'Studio Gaby Nogueira' }]
+    : undefined;
+
   try {
     // ----------------------------------------------------
     // GET: Buscar eventos (agendamentos e bloqueios)
@@ -62,13 +74,30 @@ export default async function handler(req: any, res: any) {
       const timeMin = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString();
       const timeMax = new Date(now.getFullYear(), now.getMonth() + 3, 1).toISOString();
 
-      const response = await calendar.events.list({
-        calendarId,
-        timeMin,
-        timeMax,
-        singleEvents: true,
-        orderBy: 'startTime',
-      });
+      let response;
+      try {
+        response = await calendar.events.list({
+          calendarId: activeCalendarId,
+          timeMin,
+          timeMax,
+          singleEvents: true,
+          orderBy: 'startTime',
+        });
+      } catch (listErr: any) {
+        if ((listErr?.code === 404 || listErr?.message?.includes('Not Found')) && activeCalendarId !== DEFAULT_STUDIO_CALENDAR_ID) {
+          console.warn(`Calendar ${activeCalendarId} not accessible, falling back to ${DEFAULT_STUDIO_CALENDAR_ID}`);
+          activeCalendarId = DEFAULT_STUDIO_CALENDAR_ID;
+          response = await calendar.events.list({
+            calendarId: activeCalendarId,
+            timeMin,
+            timeMax,
+            singleEvents: true,
+            orderBy: 'startTime',
+          });
+        } else {
+          throw listErr;
+        }
+      }
 
       const events = response.data.items || [];
       const bookings: any[] = [];
@@ -121,110 +150,20 @@ export default async function handler(req: any, res: any) {
               dateVal = `${d}/${m}/${y}`;
             }
           }
-          if (!dateVal) {
-            const dObj = new Date();
-            const pad = (n: number) => String(n).padStart(2, '0');
-            dateVal = `${pad(dObj.getDate())}/${pad(dObj.getMonth() + 1)}/${dObj.getFullYear()}`;
-          }
 
           blocks.push({
             id: shared?.id || event.id,
-            date: shared?.date || dateVal,
+            googleEventId: event.id,
+            date: dateVal,
             allDay,
-            start: shared?.start || startVal,
-            end: shared?.end || endVal,
-            reason: shared?.reason || summary.replace(/^(Bloqueio - |AGENDA BLOQUEADA - )/i, '') || 'Bloqueio',
+            start: startVal,
+            end: endVal,
+            reason: shared?.reason || summary,
           });
         } else {
-          // É um agendamento (Booking)
-          let service = '';
-          let name = 'Cliente Google';
-          let phone = '';
-          let price = 0;
-          let status = 'accepted';
-
-          // Extração do Serviço e Nome
-          if (shared) {
-            service = shared.service || '';
-            name = shared.name || '';
-            phone = shared.phone || '';
-          } else {
-            const parts = summary.split(' - ');
-            if (parts.length >= 2) {
-              service = parts.slice(0, -1).join(' - ').trim();
-              name = parts[parts.length - 1].trim();
-            } else {
-              service = summary;
-            }
-          }
-
-          // 2. Extração Inteligente de Preço (Fallback)
-          if (shared?.price) {
-            price = Number(shared.price);
-          } else {
-            // Tenta descrição
-            const desc = event.description || '';
-            const priceDescMatch = desc.match(/Valor:\s*R\$\s*(\d+)/i) || desc.match(/Valor:\s*(\d+)/i);
-            if (priceDescMatch) {
-              price = Number(priceDescMatch[1]);
-            } else {
-              // Tenta Regex no título: "R$ 85,00" ou similar
-              const rsMatch = summary.match(/R\$\s*(\d+)(?:[.,]\d+)?/i);
-              if (rsMatch) {
-                price = Number(rsMatch[1]);
-              } else {
-                // Standalone number
-                const numMatch = summary.match(/\b(\d+)\b/);
-                if (numMatch) {
-                  price = Number(numMatch[1]);
-                }
-              }
-            }
-
-            // Standalone fallback: baseado no serviço conhecido
-            if (price === 0 && service) {
-              const cleanSvc = service.toLowerCase().trim();
-              if (cleanSvc.includes('alongamento')) price = 135;
-              else if (cleanSvc.includes('manutenção') || cleanSvc.includes('manutencao')) price = 95;
-              else if (cleanSvc.includes('banho de gel')) price = 85;
-              else if (cleanSvc.includes('esmaltação') || cleanSvc.includes('esmaltacao')) price = 60;
-              else if (cleanSvc.includes('remoção') || cleanSvc.includes('remocao')) price = 20;
-              else if (cleanSvc.includes('efeito molhado')) price = 125;
-              else if (cleanSvc.includes('volume brasileiro')) price = 135;
-              else if (cleanSvc.includes('volume egípcio') || cleanSvc.includes('volume egipcio')) price = 140;
-              else if (cleanSvc.includes('sirena')) price = 135;
-              else if (cleanSvc.includes('fox')) price = 150;
-              else if (cleanSvc.includes('volume inglês') || cleanSvc.includes('volume ingles')) price = 155;
-              else if (cleanSvc.includes('volume luxo')) price = 160;
-            }
-          }
-
-          // 3. Automação de Status para Eventos Passados
-          if (isPast) {
-            status = 'completed';
-          } else {
-            let parsedStatus = 'accepted';
-            if (shared?.status) {
-              parsedStatus = shared.status;
-            } else {
-              // Parser manual de status para futuros
-              const desc = event.description || '';
-              const statusMatch = desc.match(/Status:\s*(.*)/i);
-              if (statusMatch) {
-                parsedStatus = statusMatch[1].trim();
-              } else if (summary.includes('[Confirmado]')) {
-                parsedStatus = 'accepted';
-              } else if (summary.includes('[Concluído]')) {
-                parsedStatus = 'completed';
-              }
-            }
-            // Apenas accepted (Confirmado) e completed (Concluído) são aceitos.
-            status = parsedStatus === 'completed' ? 'completed' : 'accepted';
-          }
-
-          // 4. Correção de Datas Vazias
-          let dateVal = '';
-          let timeVal = '';
+          // 2. Extração de Agendamentos (Bookings)
+          let dateVal = shared?.date || '';
+          let timeVal = shared?.time || '';
 
           if (event.start?.dateTime) {
             const parsed = parseDateTimeToSaoPaulo(event.start.dateTime);
@@ -232,24 +171,59 @@ export default async function handler(req: any, res: any) {
               dateVal = parsed.date;
               timeVal = parsed.time;
             }
-          } else if (event.start?.date) {
-            const [y, m, d] = event.start.date.split('-');
-            dateVal = `${d}/${m}/${y}`;
-            timeVal = '08:00';
           }
 
           if (!dateVal) {
-            const dObj = new Date();
-            const pad = (n: number) => String(n).padStart(2, '0');
-            dateVal = `${pad(dObj.getDate())}/${pad(dObj.getMonth() + 1)}/${dObj.getFullYear()}`;
+            const startString = event.start?.date || event.start?.dateTime;
+            if (startString) {
+              const [y, m, d] = startString.split('T')[0].split('-');
+              dateVal = `${d}/${m}/${y}`;
+            }
+          }
+
+          // Se não houver extendedProperties (ex: criado direto no Google Calendar)
+          let service = shared?.service || '';
+          let name = shared?.name || '';
+          if (!service || !name) {
+            const parts = summary.split(' - ');
+            if (parts.length >= 2) {
+              service = parts.slice(0, -1).join(' - ').trim();
+              name = parts[parts.length - 1].trim();
+            } else {
+              service = summary;
+              name = 'Cliente';
+            }
+          }
+
+          // Limpa sufixos de status no nome (como [Confirmado] ou [Concluído])
+          name = name.replace(/\s*\[(Confirmado|Concluído)\]\s*$/i, '').trim();
+
+          // Determina status
+          let status: 'pending' | 'accepted' | 'completed' = (shared?.status as any) || 'accepted';
+          if (summary.includes('[Concluído]')) {
+            status = 'completed';
+          } else if (summary.includes('[Confirmado]')) {
+            status = 'accepted';
+          } else if (isPast && status === 'accepted') {
+            status = 'completed';
+          }
+
+          // Extração do telefone da descrição
+          let phone = shared?.phone || '';
+          if (!phone && event.description) {
+            const match = event.description.match(/(?:Contato|WhatsApp|Telefone):\s*([^\n\r]+)/i);
+            if (match) {
+              phone = match[1].trim();
+            }
           }
 
           bookings.push({
             id: shared?.id || event.id,
+            googleEventId: event.id,
             service,
-            price,
-            date: shared?.date || dateVal,
-            time: shared?.time || timeVal,
+            price: Number(shared?.price) || 0,
+            date: dateVal,
+            time: timeVal,
             name,
             phone,
             status,
@@ -261,7 +235,7 @@ export default async function handler(req: any, res: any) {
     }
 
     // ----------------------------------------------------
-    // POST: Criar novo evento (agendamento ou bloqueio)
+    // POST: Criar novo agendamento ou bloqueio
     // ----------------------------------------------------
     if (req.method === 'POST') {
       const { type, booking, block, duration } = req.body;
@@ -291,12 +265,27 @@ export default async function handler(req: any, res: any) {
         const timeMin = `${isoDate}T00:00:00-03:00`;
         const timeMax = `${isoDate}T23:59:59-03:00`;
 
-        const listResponse = await calendar.events.list({
-          calendarId,
-          timeMin,
-          timeMax,
-          singleEvents: true,
-        });
+        let listResponse;
+        try {
+          listResponse = await calendar.events.list({
+            calendarId: activeCalendarId,
+            timeMin,
+            timeMax,
+            singleEvents: true,
+          });
+        } catch (lErr: any) {
+          if ((lErr?.code === 404 || lErr?.message?.includes('Not Found')) && activeCalendarId !== DEFAULT_STUDIO_CALENDAR_ID) {
+            activeCalendarId = DEFAULT_STUDIO_CALENDAR_ID;
+            listResponse = await calendar.events.list({
+              calendarId: activeCalendarId,
+              timeMin,
+              timeMax,
+              singleEvents: true,
+            });
+          } else {
+            throw lErr;
+          }
+        }
 
         const existingEvents = listResponse.data.items || [];
         const timeToMinutes = (t: string) => {
@@ -412,31 +401,63 @@ export default async function handler(req: any, res: any) {
         const title = `${booking.service} - ${booking.name}`;
         const description = `Cliente: ${booking.name}\nContato: ${booking.phone}\nValor: R$ ${booking.price},00`;
 
-        await calendar.events.insert({
-          calendarId,
-          requestBody: {
-            id: eventId,
-            summary: title,
-            description,
-            start: { dateTime: startDateTime, timeZone: 'America/Sao_Paulo' },
-            end: { dateTime: endDateTime, timeZone: 'America/Sao_Paulo' },
-            extendedProperties: {
-              shared: {
-                id,
-                type: 'booking',
-                service: booking.service,
-                name: booking.name,
-                phone: booking.phone,
-                price: String(booking.price),
-                status: booking.status,
-                date: booking.date,
-                time: booking.time,
-              },
+        const insertPayload: any = {
+          id: eventId,
+          summary: title,
+          description,
+          start: { dateTime: startDateTime, timeZone: 'America/Sao_Paulo' },
+          end: { dateTime: endDateTime, timeZone: 'America/Sao_Paulo' },
+          attendees: attendeesList,
+          reminders: {
+            useDefault: false,
+            overrides: [
+              { method: 'popup', minutes: 60 },
+              { method: 'popup', minutes: 15 },
+            ],
+          },
+          extendedProperties: {
+            shared: {
+              id,
+              type: 'booking',
+              service: booking.service,
+              name: booking.name,
+              phone: booking.phone,
+              price: String(booking.price),
+              status: booking.status,
+              date: booking.date,
+              time: booking.time,
             },
           },
-        });
+        };
 
-        return res.status(201).json({ success: true, eventId });
+        let insertedEvent: any;
+        try {
+          insertedEvent = await calendar.events.insert({
+            calendarId: activeCalendarId,
+            sendUpdates: 'all',
+            requestBody: insertPayload,
+          });
+        } catch (insertErr: any) {
+          if ((insertErr?.code === 404 || insertErr?.message?.includes('Not Found')) && activeCalendarId !== DEFAULT_STUDIO_CALENDAR_ID) {
+            activeCalendarId = DEFAULT_STUDIO_CALENDAR_ID;
+            insertedEvent = await calendar.events.insert({
+              calendarId: activeCalendarId,
+              sendUpdates: 'all',
+              requestBody: insertPayload,
+            });
+          } else if (insertPayload.id) {
+            delete insertPayload.id;
+            insertedEvent = await calendar.events.insert({
+              calendarId: activeCalendarId,
+              sendUpdates: 'all',
+              requestBody: insertPayload,
+            });
+          } else {
+            throw insertErr;
+          }
+        }
+
+        return res.status(201).json({ success: true, eventId: insertedEvent?.data?.id || eventId });
       }
 
       if (type === 'block') {
@@ -464,29 +485,50 @@ export default async function handler(req: any, res: any) {
 
         const title = `Bloqueio - ${block.reason || 'Indisponível'}`;
 
-        await calendar.events.insert({
-          calendarId,
-          requestBody: {
-            id: eventId,
-            summary: title,
-            description: `Bloqueio de Agenda\nMotivo: ${block.reason}`,
-            start,
-            end,
-            extendedProperties: {
-              shared: {
-                id,
-                type: 'block',
-                reason: block.reason,
-                date: block.date,
-                allDay: String(block.allDay),
-                start: block.start || '',
-                end: block.end || '',
-              },
+        const blockPayload: any = {
+          id: eventId,
+          summary: title,
+          description: `Bloqueio de Agenda\nMotivo: ${block.reason}`,
+          start,
+          end,
+          extendedProperties: {
+            shared: {
+              id,
+              type: 'block',
+              reason: block.reason,
+              date: block.date,
+              allDay: String(block.allDay),
+              start: block.start || '',
+              end: block.end || '',
             },
           },
-        });
+        };
 
-        return res.status(201).json({ success: true, eventId });
+        let insertedBlock: any;
+        try {
+          insertedBlock = await calendar.events.insert({
+            calendarId: activeCalendarId,
+            requestBody: blockPayload,
+          });
+        } catch (blockErr: any) {
+          if ((blockErr?.code === 404 || blockErr?.message?.includes('Not Found')) && activeCalendarId !== DEFAULT_STUDIO_CALENDAR_ID) {
+            activeCalendarId = DEFAULT_STUDIO_CALENDAR_ID;
+            insertedBlock = await calendar.events.insert({
+              calendarId: activeCalendarId,
+              requestBody: blockPayload,
+            });
+          } else if (blockPayload.id) {
+            delete blockPayload.id;
+            insertedBlock = await calendar.events.insert({
+              calendarId: activeCalendarId,
+              requestBody: blockPayload,
+            });
+          } else {
+            throw blockErr;
+          }
+        }
+
+        return res.status(201).json({ success: true, eventId: insertedBlock?.data?.id || eventId });
       }
     }
 
@@ -519,29 +561,54 @@ export default async function handler(req: any, res: any) {
         const title = `${booking.service} - ${booking.name}${suffix}`;
         const description = `Cliente: ${booking.name}\nContato: ${booking.phone}\nValor: R$ ${booking.price},00`;
 
-        await calendar.events.update({
-          calendarId,
-          eventId,
-          requestBody: {
-            summary: title,
-            description,
-            start: { dateTime: startDateTime, timeZone: 'America/Sao_Paulo' },
-            end: { dateTime: endDateTime, timeZone: 'America/Sao_Paulo' },
-            extendedProperties: {
-              shared: {
-                id,
-                type: 'booking',
-                service: booking.service,
-                name: booking.name,
-                phone: booking.phone,
-                price: String(booking.price),
-                status: booking.status,
-                date: booking.date,
-                time: booking.time,
-              },
+        const updatePayload: any = {
+          summary: title,
+          description,
+          start: { dateTime: startDateTime, timeZone: 'America/Sao_Paulo' },
+          end: { dateTime: endDateTime, timeZone: 'America/Sao_Paulo' },
+          attendees: attendeesList,
+          reminders: {
+            useDefault: false,
+            overrides: [
+              { method: 'popup', minutes: 60 },
+              { method: 'popup', minutes: 15 },
+            ],
+          },
+          extendedProperties: {
+            shared: {
+              id,
+              type: 'booking',
+              service: booking.service,
+              name: booking.name,
+              phone: booking.phone,
+              price: String(booking.price),
+              status: booking.status,
+              date: booking.date,
+              time: booking.time,
             },
           },
-        });
+        };
+
+        try {
+          await calendar.events.update({
+            calendarId: activeCalendarId,
+            eventId,
+            sendUpdates: 'all',
+            requestBody: updatePayload,
+          });
+        } catch (updateErr: any) {
+          if ((updateErr?.code === 404 || updateErr?.message?.includes('Not Found')) && activeCalendarId !== DEFAULT_STUDIO_CALENDAR_ID) {
+            activeCalendarId = DEFAULT_STUDIO_CALENDAR_ID;
+            await calendar.events.update({
+              calendarId: activeCalendarId,
+              eventId,
+              sendUpdates: 'all',
+              requestBody: updatePayload,
+            });
+          } else {
+            throw updateErr;
+          }
+        }
 
         return res.status(200).json({ success: true });
       }
@@ -567,27 +634,42 @@ export default async function handler(req: any, res: any) {
 
         const title = `Bloqueio - ${block.reason || 'Indisponível'}`;
 
-        await calendar.events.update({
-          calendarId,
-          eventId,
-          requestBody: {
-            summary: title,
-            description: `Bloqueio de Agenda\nMotivo: ${block.reason}`,
-            start,
-            end,
-            extendedProperties: {
-              shared: {
-                id,
-                type: 'block',
-                reason: block.reason,
-                date: block.date,
-                allDay: String(block.allDay),
-                start: block.start || '',
-                end: block.end || '',
-              },
+        const updateBlockPayload: any = {
+          summary: title,
+          description: `Bloqueio de Agenda\nMotivo: ${block.reason}`,
+          start,
+          end,
+          extendedProperties: {
+            shared: {
+              id,
+              type: 'block',
+              reason: block.reason,
+              date: block.date,
+              allDay: String(block.allDay),
+              start: block.start || '',
+              end: block.end || '',
             },
           },
-        });
+        };
+
+        try {
+          await calendar.events.update({
+            calendarId: activeCalendarId,
+            eventId,
+            requestBody: updateBlockPayload,
+          });
+        } catch (updateErr: any) {
+          if ((updateErr?.code === 404 || updateErr?.message?.includes('Not Found')) && activeCalendarId !== DEFAULT_STUDIO_CALENDAR_ID) {
+            activeCalendarId = DEFAULT_STUDIO_CALENDAR_ID;
+            await calendar.events.update({
+              calendarId: activeCalendarId,
+              eventId,
+              requestBody: updateBlockPayload,
+            });
+          } else {
+            throw updateErr;
+          }
+        }
 
         return res.status(200).json({ success: true });
       }
@@ -605,14 +687,28 @@ export default async function handler(req: any, res: any) {
 
       try {
         await calendar.events.delete({
-          calendarId,
+          calendarId: activeCalendarId,
           eventId,
         });
       } catch (err: any) {
         // Se o evento já tiver sido excluído manualmente no Google Calendar, ignora o erro (404)
-        if (err.code !== 404) {
-          throw err;
+        if (err.code === 404 || err.message?.includes('Not Found')) {
+          return res.status(200).json({ success: true, message: 'Event already removed' });
         }
+        if (activeCalendarId !== DEFAULT_STUDIO_CALENDAR_ID) {
+          try {
+            await calendar.events.delete({
+              calendarId: DEFAULT_STUDIO_CALENDAR_ID,
+              eventId,
+            });
+            return res.status(200).json({ success: true });
+          } catch (delErr: any) {
+            if (delErr.code === 404 || delErr.message?.includes('Not Found')) {
+              return res.status(200).json({ success: true, message: 'Event already removed' });
+            }
+          }
+        }
+        throw err;
       }
 
       return res.status(200).json({ success: true });
