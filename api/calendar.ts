@@ -70,36 +70,48 @@ export default async function handler(req: any, res: any) {
     // ----------------------------------------------------
     if (req.method === 'GET') {
       const now = new Date();
-      // Período de busca padrão: de 30 dias atrás até 90 dias no futuro
-      const timeMin = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString();
-      const timeMax = new Date(now.getFullYear(), now.getMonth() + 3, 1).toISOString();
+      // Período de busca completo: carrega todo o histórico desde 2024 até 2 anos no futuro para manter histórico e faturamento anual completos
+      const timeMin = (req.query?.timeMin as string) || new Date(2024, 0, 1).toISOString();
+      const timeMax = (req.query?.timeMax as string) || new Date(now.getFullYear() + 2, 11, 31).toISOString();
 
-      let response;
-      try {
-        response = await calendar.events.list({
-          calendarId: activeCalendarId,
-          timeMin,
-          timeMax,
-          singleEvents: true,
-          orderBy: 'startTime',
-        });
-      } catch (listErr: any) {
-        if ((listErr?.code === 404 || listErr?.message?.includes('Not Found')) && activeCalendarId !== DEFAULT_STUDIO_CALENDAR_ID) {
-          console.warn(`Calendar ${activeCalendarId} not accessible, falling back to ${DEFAULT_STUDIO_CALENDAR_ID}`);
-          activeCalendarId = DEFAULT_STUDIO_CALENDAR_ID;
-          response = await calendar.events.list({
+      const events: any[] = [];
+      let pageToken: string | undefined = undefined;
+
+      do {
+        let listResponse: any;
+        try {
+          listResponse = await calendar.events.list({
             calendarId: activeCalendarId,
             timeMin,
             timeMax,
             singleEvents: true,
             orderBy: 'startTime',
+            maxResults: 2500,
+            pageToken,
           });
-        } else {
-          throw listErr;
+        } catch (listErr: any) {
+          if ((listErr?.code === 404 || listErr?.message?.includes('Not Found')) && activeCalendarId !== DEFAULT_STUDIO_CALENDAR_ID) {
+            console.warn(`Calendar ${activeCalendarId} not accessible, falling back to ${DEFAULT_STUDIO_CALENDAR_ID}`);
+            activeCalendarId = DEFAULT_STUDIO_CALENDAR_ID;
+            listResponse = await calendar.events.list({
+              calendarId: activeCalendarId,
+              timeMin,
+              timeMax,
+              singleEvents: true,
+              orderBy: 'startTime',
+              maxResults: 2500,
+              pageToken,
+            });
+          } else {
+            throw listErr;
+          }
         }
-      }
 
-      const events = response.data.items || [];
+        if (listResponse?.data?.items) {
+          events.push(...listResponse.data.items);
+        }
+        pageToken = listResponse?.data?.nextPageToken || undefined;
+      } while (pageToken);
       const bookings: any[] = [];
       const blocks: any[] = [];
 
