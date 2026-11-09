@@ -49,12 +49,66 @@ const AdminPanel = () => {
 
   // Schedule block state
   const [addMode, setAddMode] = useState<'booking' | 'block'>('booking');
+  const [blockType, setBlockType] = useState<'single' | 'range'>('single');
   const [blockDate, setBlockDate] = useState('');
+  const [blockStartDate, setBlockStartDate] = useState('');
+  const [blockEndDate, setBlockEndDate] = useState('');
   const [blockAllDay, setBlockAllDay] = useState(false);
   const [blockStart, setBlockStart] = useState('');
   const [blockEnd, setBlockEnd] = useState('');
   const [blockReason, setBlockReason] = useState('');
   const [blocks, setBlocks] = useState<ScheduleBlock[]>([]);
+  const [isSavingBlock, setIsSavingBlock] = useState(false);
+
+  const formatInputDate = (value: string) => {
+    let v = value.replace(/\D/g, '').slice(0, 8);
+    if (v.length > 4) v = v.slice(0, 2) + '/' + v.slice(2, 4) + '/' + v.slice(4);
+    else if (v.length > 2) v = v.slice(0, 2) + '/' + v.slice(2);
+    return v;
+  };
+
+  const parseDateString = (str: string): Date | null => {
+    const parts = str.split('/');
+    if (parts.length !== 3) return null;
+    const d = parseInt(parts[0], 10);
+    const m = parseInt(parts[1], 10) - 1;
+    const y = parseInt(parts[2], 10);
+    if (isNaN(d) || isNaN(m) || isNaN(y)) return null;
+    return new Date(y, m, d, 12, 0, 0);
+  };
+
+  const formatDateToString = (date: Date): string => {
+    const d = String(date.getDate()).padStart(2, '0');
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const y = date.getFullYear();
+    return `${d}/${m}/${y}`;
+  };
+
+  const computedRangeDates = useMemo(() => {
+    if (blockType !== 'range') return [];
+    if (blockStartDate.length < 10 || blockEndDate.length < 10) return [];
+    const start = parseDateString(blockStartDate);
+    const end = parseDateString(blockEndDate);
+    if (!start || !end || start > end) return [];
+    
+    const dates: string[] = [];
+    const curr = new Date(start);
+    while (curr <= end && dates.length <= 90) {
+      dates.push(formatDateToString(curr));
+      curr.setDate(curr.getDate() + 1);
+    }
+    return dates;
+  }, [blockType, blockStartDate, blockEndDate]);
+
+  const sortedBlocks = useMemo(() => {
+    return [...blocks].sort((a, b) => {
+      const parse = (d: string) => {
+        const [day, m, y] = (d || '').split('/').map(Number);
+        return new Date(y || 2026, (m || 1) - 1, day || 1, 12, 0, 0).getTime();
+      };
+      return parse(a.date) - parse(b.date);
+    });
+  }, [blocks]);
 
   const reload = () => {
     // Carregamento imediato do local storage para feedback instantâneo
@@ -392,53 +446,78 @@ const AdminPanel = () => {
     setTimeout(() => setShowSuccess(false), 2500);
   };
 
-  const handleSaveBlock = () => {
-    if (!blockDate || (!blockAllDay && (!blockStart || !blockEnd))) return;
+  const handleSaveBlock = async () => {
+    let datesToBlock: string[] = [];
 
-    if (blockDate.length < 10) {
-      alert("Por favor, digite a data completa no formato DD/MM/AAAA");
+    if (blockType === 'single') {
+      if (!blockDate || blockDate.length < 10) {
+        toast.error("Por favor, digite a data completa no formato DD/MM/AAAA");
+        return;
+      }
+      datesToBlock = [blockDate];
+    } else {
+      if (blockStartDate.length < 10 || blockEndDate.length < 10) {
+        toast.error("Por favor, preencha as datas de início e término no formato DD/MM/AAAA");
+        return;
+      }
+      if (computedRangeDates.length === 0) {
+        toast.error("A data de término deve ser igual ou posterior à data de início");
+        return;
+      }
+      datesToBlock = computedRangeDates;
+    }
+
+    if (!blockAllDay && (!blockStart || !blockEnd)) {
+      toast.error("Informe os horários de início e término ou marque 'Bloquear o dia inteiro'");
       return;
     }
 
-    const block: ScheduleBlock = {
+    setIsSavingBlock(true);
+
+    const newBlocks: ScheduleBlock[] = datesToBlock.map(dateStr => ({
       id: crypto.randomUUID(),
-      date: blockDate,
+      date: dateStr,
       allDay: blockAllDay,
       start: blockAllDay ? undefined : blockStart,
       end: blockAllDay ? undefined : blockEnd,
-      reason: blockReason || 'Bloqueio de Agenda',
-    };
+      reason: blockReason || (blockType === 'range' ? `Bloqueio (${blockStartDate} a ${blockEndDate})` : 'Bloqueio de Agenda'),
+    }));
 
-    addBlock(block);
+    // Update locally immediately
+    newBlocks.forEach(b => addBlock(b));
+    setBlocks(getBlocks());
 
-    // Sync block to Google Calendar via Serverless API
-    fetch('/api/calendar', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        type: 'block',
-        block,
-      }),
-    })
-      .then((res) => {
-        if (!res.ok) throw new Error('Falha ao salvar bloqueio');
-        console.log("Block saved to Google Calendar");
-        reload();
-      })
-      .catch((err) => {
-        console.error("Error saving block to Google Calendar:", err);
+    try {
+      const res = await fetch('/api/calendar', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          type: 'blocks',
+          blocks: newBlocks,
+        }),
       });
 
-    reload();
-    setBlockDate('');
-    setBlockAllDay(false);
-    setBlockStart('');
-    setBlockEnd('');
-    setBlockReason('');
-    setShowSuccess(true);
-    setTimeout(() => setShowSuccess(false), 2500);
+      if (!res.ok) throw new Error('Falha ao salvar bloqueio no Google Calendar');
+      console.log("Blocks saved to Google Calendar");
+      toast.success(newBlocks.length === 1 ? 'Bloqueio salvo com sucesso!' : `${newBlocks.length} dias bloqueados com sucesso!`);
+      reload();
+    } catch (err) {
+      console.error("Error saving block(s) to Google Calendar:", err);
+      toast.error("Salvo localmente. Erro ao sincronizar com Google Agenda.");
+    } finally {
+      setIsSavingBlock(false);
+      setBlockDate('');
+      setBlockStartDate('');
+      setBlockEndDate('');
+      setBlockAllDay(false);
+      setBlockStart('');
+      setBlockEnd('');
+      setBlockReason('');
+      setShowSuccess(true);
+      setTimeout(() => setShowSuccess(false), 2500);
+    }
   };
 
   const handleDeleteBlock = (id: string) => {
@@ -1084,24 +1163,116 @@ const AdminPanel = () => {
                   </div>
                 ) : (
                   <div className="space-y-5 animate-in fade-in duration-200">
+                    {/* Selector: Dia Único vs Vários Dias / Período */}
                     <div>
-                      <label className="text-xs font-medium text-muted-foreground uppercase tracking-widest mb-2 block">Data (DD/MM/AAAA)</label>
-                      <input
-                        type="text"
-                        value={blockDate}
-                        onChange={e => {
-                          let v = e.target.value.replace(/\D/g, '').slice(0, 8);
-                          if (v.length > 4) v = v.slice(0, 2) + '/' + v.slice(2, 4) + '/' + v.slice(4);
-                          else if (v.length > 2) v = v.slice(0, 2) + '/' + v.slice(2);
-                          setBlockDate(v);
-                        }}
-                        placeholder="06/04/2026"
-                        className="w-full bg-background/50 border border-primary/10 focus:border-primary/40 p-3.5 rounded-xl outline-none transition-all text-foreground text-sm placeholder:text-muted-foreground/40"
-                      />
+                      <label className="text-xs font-medium text-muted-foreground uppercase tracking-widest mb-2 block">
+                        Tipo de Bloqueio
+                      </label>
+                      <div className="grid grid-cols-2 gap-2 p-1 bg-background/50 border border-primary/10 rounded-xl">
+                        <button
+                          type="button"
+                          onClick={() => setBlockType('single')}
+                          className={`py-2.5 px-3 text-xs font-bold rounded-lg transition-all ${
+                            blockType === 'single'
+                              ? 'bg-primary text-primary-foreground shadow-sm shadow-primary/20'
+                              : 'text-muted-foreground hover:text-foreground'
+                          }`}
+                        >
+                          Dia Único
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setBlockType('range');
+                            setBlockAllDay(true);
+                          }}
+                          className={`py-2.5 px-3 text-xs font-bold rounded-lg transition-all ${
+                            blockType === 'range'
+                              ? 'bg-primary text-primary-foreground shadow-sm shadow-primary/20'
+                              : 'text-muted-foreground hover:text-foreground'
+                          }`}
+                        >
+                          Vários Dias / Período
+                        </button>
+                      </div>
                     </div>
 
+                    {blockType === 'single' ? (
+                      <div>
+                        <label className="text-xs font-medium text-muted-foreground uppercase tracking-widest mb-2 block">
+                          Data (DD/MM/AAAA)
+                        </label>
+                        <input
+                          type="text"
+                          value={blockDate}
+                          onChange={e => setBlockDate(formatInputDate(e.target.value))}
+                          placeholder="06/04/2026"
+                          className="w-full bg-background/50 border border-primary/10 focus:border-primary/40 p-3.5 rounded-xl outline-none transition-all text-foreground text-sm placeholder:text-muted-foreground/40 font-mono"
+                        />
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div>
+                            <label className="text-xs font-medium text-muted-foreground uppercase tracking-widest mb-2 block">
+                              Data de Início
+                            </label>
+                            <input
+                              type="text"
+                              value={blockStartDate}
+                              onChange={e => setBlockStartDate(formatInputDate(e.target.value))}
+                              placeholder="24/12/2026"
+                              className="w-full bg-background/50 border border-primary/10 focus:border-primary/40 p-3.5 rounded-xl outline-none transition-all text-foreground text-sm placeholder:text-muted-foreground/40 font-mono"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-xs font-medium text-muted-foreground uppercase tracking-widest mb-2 block">
+                              Data de Término
+                            </label>
+                            <input
+                              type="text"
+                              value={blockEndDate}
+                              onChange={e => setBlockEndDate(formatInputDate(e.target.value))}
+                              placeholder="02/01/2027"
+                              className="w-full bg-background/50 border border-primary/10 focus:border-primary/40 p-3.5 rounded-xl outline-none transition-all text-foreground text-sm placeholder:text-muted-foreground/40 font-mono"
+                            />
+                          </div>
+                        </div>
+
+                        {/* Computed Range Preview */}
+                        {computedRangeDates.length > 0 && (
+                          <div className="bg-primary/5 border border-primary/20 rounded-xl p-3.5 space-y-2 animate-in fade-in duration-200">
+                            <div className="flex items-center justify-between text-xs text-primary font-semibold">
+                              <span>📅 {computedRangeDates.length} dias selecionados</span>
+                              <span>{blockStartDate} até {blockEndDate}</span>
+                            </div>
+                            <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto pr-1">
+                              {computedRangeDates.map(d => (
+                                <span
+                                  key={d}
+                                  className="px-2 py-0.5 rounded-md bg-primary/15 text-primary text-[11px] font-mono font-medium"
+                                >
+                                  {d}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        {blockStartDate.length === 10 && blockEndDate.length === 10 && computedRangeDates.length === 0 && (
+                          <p className="text-xs text-destructive">
+                            A data de término deve ser igual ou posterior à data de início.
+                          </p>
+                        )}
+                      </div>
+                    )}
+
                     <div className="flex items-center justify-between bg-background/50 border border-primary/10 p-4 rounded-xl">
-                      <span className="text-sm text-foreground font-medium">Bloquear o dia inteiro</span>
+                      <div className="space-y-0.5">
+                        <span className="text-sm text-foreground font-medium block">Bloquear o dia inteiro</span>
+                        {blockType === 'range' && (
+                          <span className="text-[11px] text-muted-foreground block">Aplica para todos os dias do período</span>
+                        )}
+                      </div>
                       <button
                         type="button"
                         onClick={() => setBlockAllDay(!blockAllDay)}
@@ -1118,45 +1289,66 @@ const AdminPanel = () => {
                     </div>
 
                     {!blockAllDay && (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 animate-in slide-in-from-top-2 duration-200">
-                        <div>
-                          <label className="text-xs font-medium text-muted-foreground uppercase tracking-widest mb-2 block">Horário de Início</label>
-                          <input
-                            type="time"
-                            value={blockStart}
-                            onChange={e => setBlockStart(e.target.value)}
-                            className="w-full bg-background/50 border border-primary/10 focus:border-primary/40 p-3.5 rounded-xl outline-none transition-all text-foreground text-sm"
-                          />
-                        </div>
-                        <div>
-                          <label className="text-xs font-medium text-muted-foreground uppercase tracking-widest mb-2 block">Horário de Término</label>
-                          <input
-                            type="time"
-                            value={blockEnd}
-                            onChange={e => setBlockEnd(e.target.value)}
-                            className="w-full bg-background/50 border border-primary/10 focus:border-primary/40 p-3.5 rounded-xl outline-none transition-all text-foreground text-sm"
-                          />
+                      <div className="space-y-2 animate-in slide-in-from-top-2 duration-200">
+                        {blockType === 'range' && (
+                          <p className="text-xs text-muted-foreground">
+                            Este intervalo de horários será bloqueado em cada dia selecionado:
+                          </p>
+                        )}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          <div>
+                            <label className="text-xs font-medium text-muted-foreground uppercase tracking-widest mb-2 block">Horário de Início</label>
+                            <input
+                              type="time"
+                              value={blockStart}
+                              onChange={e => setBlockStart(e.target.value)}
+                              className="w-full bg-background/50 border border-primary/10 focus:border-primary/40 p-3.5 rounded-xl outline-none transition-all text-foreground text-sm"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-xs font-medium text-muted-foreground uppercase tracking-widest mb-2 block">Horário de Término</label>
+                            <input
+                              type="time"
+                              value={blockEnd}
+                              onChange={e => setBlockEnd(e.target.value)}
+                              className="w-full bg-background/50 border border-primary/10 focus:border-primary/40 p-3.5 rounded-xl outline-none transition-all text-foreground text-sm"
+                            />
+                          </div>
                         </div>
                       </div>
                     )}
 
                     <div>
-                      <label className="text-xs font-medium text-muted-foreground uppercase tracking-widest mb-2 block">Motivo (Ex: Folga, Almoço, Manutenção)</label>
+                      <label className="text-xs font-medium text-muted-foreground uppercase tracking-widest mb-2 block">Motivo (Ex: Folga, Almoço, Manutenção, Férias)</label>
                       <input
                         type="text"
                         value={blockReason}
                         onChange={e => setBlockReason(e.target.value)}
-                        placeholder="Folga, Almoço, Manutenção"
+                        placeholder="Folga, Almoço, Manutenção, Férias"
                         className="w-full bg-background/50 border border-primary/10 focus:border-primary/40 p-3.5 rounded-xl outline-none transition-all text-foreground text-sm placeholder:text-muted-foreground/40"
                       />
                     </div>
 
                     <button
                       onClick={handleSaveBlock}
-                      disabled={!blockDate || (!blockAllDay && (!blockStart || !blockEnd))}
+                      disabled={
+                        isSavingBlock ||
+                        (blockType === 'single'
+                          ? !blockDate || blockDate.length < 10 || (!blockAllDay && (!blockStart || !blockEnd))
+                          : computedRangeDates.length === 0 || (!blockAllDay && (!blockStart || !blockEnd)))
+                      }
                       className="w-full py-4 bg-primary text-primary-foreground font-bold rounded-xl transition-all hover:shadow-[0_0_25px_-5px_hsl(6_48%_68%/0.5)] hover:scale-[1.02] active:scale-[0.98] disabled:opacity-30 disabled:hover:shadow-none disabled:hover:scale-100 flex items-center justify-center gap-2"
                     >
-                      Salvar Bloqueio
+                      {isSavingBlock ? (
+                        <>
+                          <div className="w-4 h-4 rounded-full border-2 border-primary-foreground/30 border-t-primary-foreground animate-spin" />
+                          Salvando bloqueio...
+                        </>
+                      ) : blockType === 'range' && computedRangeDates.length > 0 ? (
+                        `Salvar Bloqueio (${computedRangeDates.length} dias)`
+                      ) : (
+                        'Salvar Bloqueio'
+                      )}
                     </button>
                   </div>
                 )}
@@ -1165,9 +1357,11 @@ const AdminPanel = () => {
               {/* Active Blocks List */}
               {addMode === 'block' && blocks.length > 0 && (
                 <div className="bg-card/60 backdrop-blur-sm rounded-2xl border border-primary/10 p-6 md:p-8 animate-in fade-in duration-300">
-                  <h4 className="font-bold text-sm text-foreground mb-4">Horários Bloqueados</h4>
-                  <div className="space-y-3">
-                    {blocks.map(b => (
+                  <div className="flex items-center justify-between mb-4">
+                    <h4 className="font-bold text-sm text-foreground">Horários Bloqueados ({blocks.length})</h4>
+                  </div>
+                  <div className="space-y-3 max-h-96 overflow-y-auto pr-1">
+                    {sortedBlocks.map(b => (
                       <div key={b.id} className="flex items-center justify-between p-3.5 bg-background/50 border border-primary/5 rounded-xl text-sm">
                         <div className="space-y-1">
                           <p className="font-semibold text-foreground">{b.reason}</p>

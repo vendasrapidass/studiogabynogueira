@@ -472,75 +472,89 @@ export default async function handler(req: any, res: any) {
         return res.status(201).json({ success: true, eventId: insertedEvent?.data?.id || eventId });
       }
 
-      if (type === 'block') {
-        const id = block.id;
-        const eventId = id.replace(/-/g, '').toLowerCase();
+      if (type === 'block' || type === 'blocks') {
+        const blocksList: any[] = Array.isArray(req.body.blocks)
+          ? req.body.blocks
+          : (req.body.block ? [req.body.block] : []);
 
-        const [d, m, y] = block.date.split('/');
-        const isoDate = `${y}-${m}-${d}`;
-
-        let start: any;
-        let end: any;
-
-        if (block.allDay) {
-          start = { date: isoDate };
-          // O término de eventos de dia inteiro no Google é exclusivo (+1 dia)
-          const dateObj = new Date(Number(y), Number(m) - 1, Number(d));
-          dateObj.setDate(dateObj.getDate() + 1);
-          const pad = (n: number) => String(n).padStart(2, '0');
-          const nextDayStr = `${dateObj.getFullYear()}-${pad(dateObj.getMonth() + 1)}-${pad(dateObj.getDate())}`;
-          end = { date: nextDayStr };
-        } else {
-          start = { dateTime: `${isoDate}T${block.start}:00`, timeZone: 'America/Sao_Paulo' };
-          end = { dateTime: `${isoDate}T${block.end}:00`, timeZone: 'America/Sao_Paulo' };
+        if (blocksList.length === 0) {
+          return res.status(400).json({ error: 'Nenhum bloqueio informado' });
         }
 
-        const title = `Bloqueio - ${block.reason || 'Indisponível'}`;
+        const insertedIds: string[] = [];
 
-        const blockPayload: any = {
-          id: eventId,
-          summary: title,
-          description: `Bloqueio de Agenda\nMotivo: ${block.reason}`,
-          start,
-          end,
-          extendedProperties: {
-            shared: {
-              id,
-              type: 'block',
-              reason: block.reason,
-              date: block.date,
-              allDay: String(block.allDay),
-              start: block.start || '',
-              end: block.end || '',
-            },
-          },
-        };
+        for (const item of blocksList) {
+          const id = item.id;
+          const eventId = id.replace(/-/g, '').toLowerCase();
 
-        let insertedBlock: any;
-        try {
-          insertedBlock = await calendar.events.insert({
-            calendarId: activeCalendarId,
-            requestBody: blockPayload,
-          });
-        } catch (blockErr: any) {
-          if ((blockErr?.code === 404 || blockErr?.message?.includes('Not Found')) && activeCalendarId !== DEFAULT_STUDIO_CALENDAR_ID) {
-            activeCalendarId = DEFAULT_STUDIO_CALENDAR_ID;
-            insertedBlock = await calendar.events.insert({
-              calendarId: activeCalendarId,
-              requestBody: blockPayload,
-            });
-          } else if (blockPayload.id) {
-            delete blockPayload.id;
-            insertedBlock = await calendar.events.insert({
-              calendarId: activeCalendarId,
-              requestBody: blockPayload,
-            });
+          const [d, m, y] = item.date.split('/');
+          const isoDate = `${y}-${m}-${d}`;
+
+          let start: any;
+          let end: any;
+
+          if (item.allDay) {
+            start = { date: isoDate };
+            // O término de eventos de dia inteiro no Google é exclusivo (+1 dia)
+            const dateObj = new Date(Number(y), Number(m) - 1, Number(d), 12, 0, 0);
+            dateObj.setDate(dateObj.getDate() + 1);
+            const pad = (n: number) => String(n).padStart(2, '0');
+            const nextDayStr = `${dateObj.getFullYear()}-${pad(dateObj.getMonth() + 1)}-${pad(dateObj.getDate())}`;
+            end = { date: nextDayStr };
           } else {
-            throw blockErr;
+            start = { dateTime: `${isoDate}T${item.start}:00`, timeZone: 'America/Sao_Paulo' };
+            end = { dateTime: `${isoDate}T${item.end}:00`, timeZone: 'America/Sao_Paulo' };
+          }
+
+          const title = `Bloqueio - ${item.reason || 'Indisponível'}`;
+
+          const blockPayload: any = {
+            id: eventId,
+            summary: title,
+            description: `Bloqueio de Agenda\nMotivo: ${item.reason}`,
+            start,
+            end,
+            extendedProperties: {
+              shared: {
+                id,
+                type: 'block',
+                reason: item.reason,
+                date: item.date,
+                allDay: String(item.allDay),
+                start: item.start || '',
+                end: item.end || '',
+              },
+            },
+          };
+
+          try {
+            const insertedBlock = await calendar.events.insert({
+              calendarId: activeCalendarId,
+              requestBody: blockPayload,
+            });
+            insertedIds.push(insertedBlock?.data?.id || eventId);
+          } catch (blockErr: any) {
+            if ((blockErr?.code === 404 || blockErr?.message?.includes('Not Found')) && activeCalendarId !== DEFAULT_STUDIO_CALENDAR_ID) {
+              activeCalendarId = DEFAULT_STUDIO_CALENDAR_ID;
+              const insertedBlock = await calendar.events.insert({
+                calendarId: activeCalendarId,
+                requestBody: blockPayload,
+              });
+              insertedIds.push(insertedBlock?.data?.id || eventId);
+            } else if (blockPayload.id) {
+              delete blockPayload.id;
+              const insertedBlock = await calendar.events.insert({
+                calendarId: activeCalendarId,
+                requestBody: blockPayload,
+              });
+              insertedIds.push(insertedBlock?.data?.id || eventId);
+            } else {
+              console.error('Error inserting block into Google Calendar:', blockErr);
+            }
           }
         }
 
-        return res.status(201).json({ success: true, eventId: insertedBlock?.data?.id || eventId });
+        return res.status(201).json({ success: true, count: insertedIds.length, eventIds: insertedIds });
       }
     }
 
