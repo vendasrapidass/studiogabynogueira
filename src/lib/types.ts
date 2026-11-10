@@ -82,24 +82,13 @@ export function getTimesForDate(date: Date): string[] {
   const day = date.getDay();
   if (day === 0) return []; // Domingos: Fechado
 
-  const isDecember = date.getMonth() === 11; // Dezembro (mês 11 em JavaScript)
-
-  if (isDecember) {
-    // Sábados de dezembro: 08:00, 11:00 e 14:00
-    if (day === 6) {
-      return ['08:00', '11:00', '14:00'];
-    }
-    // Segunda a Sexta em dezembro: todos os horários liberados para que ela bloqueie pelo painel o que não atender
-    return ['08:00', '11:00', '14:00', '17:00', '19:30'];
-  }
-
-  // Sábados nos demais meses (ex: Novembro)
+  // Sábados: 08:00, 11:00 e 14:00
   if (day === 6) {
-    return ['08:30', '12:30', '15:30'];
+    return ['08:00', '11:00', '14:00'];
   }
 
-  // Segunda a Sexta nos demais meses (ex: Novembro): Horários normais liberados
-  return ['08:00', '14:00', '17:00', '17:30', '18:00', '18:30'];
+  // Segunda a Sexta: 08:00, 11:00, 14:00, 17:00, 19:30
+  return ['08:00', '11:00', '14:00', '17:00', '19:30'];
 }
 
 export function getBookingDuration(serviceName: string): number {

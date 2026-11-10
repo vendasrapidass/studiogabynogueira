@@ -61,7 +61,7 @@ export default async function handler(req: any, res: any) {
   // Profissional para attendees (sem incluir o desenvolvedor/administrador)
   const professionalEmail = (process.env.PROFESSIONAL_EMAIL || DEFAULT_PROFESSIONAL_EMAIL).trim();
   const attendeesList = professionalEmail && professionalEmail.toLowerCase() !== DEVELOPER_ADMIN_EMAIL.toLowerCase()
-    ? [{ email: professionalEmail, responseStatus: 'accepted', displayName: 'Studio Gaby Nogueira' }]
+    ? [{ email: professionalEmail, displayName: 'Studio Gaby Nogueira' }]
     : undefined;
 
   try {
@@ -342,69 +342,71 @@ export default async function handler(req: any, res: any) {
         const newStart = timeToMinutes(booking.time);
         const newEnd = newStart + (duration || 150);
 
-        for (const existingEvent of existingEvents) {
-          if (existingEvent.id === eventId) continue;
+        const isAdmin = req.body.source === 'admin';
+        if (!isAdmin) {
+          for (const existingEvent of existingEvents) {
+            if (existingEvent.id === eventId) continue;
 
-          const shared = existingEvent.extendedProperties?.shared;
-          const summary = existingEvent.summary || '';
-          const summaryLower = summary.toLowerCase();
+            const shared = existingEvent.extendedProperties?.shared;
+            const summary = existingEvent.summary || '';
+            const summaryLower = summary.toLowerCase();
 
-          const hasBlockKeyword = summaryLower.includes('folga') || 
-                                  summaryLower.includes('bloqueado') || 
-                                  summaryLower.includes('bloqueio') ||
-                                  summaryLower.includes('indisponível') ||
-                                  summaryLower.includes('indisponivel');
-          const hasDashSeparator = summary.includes(' - ');
-          const isBlock = shared?.type === 'block' || hasBlockKeyword || !hasDashSeparator;
+            const hasBlockKeyword = summaryLower.includes('folga') || 
+                                    summaryLower.includes('bloqueado') || 
+                                    summaryLower.includes('bloqueio') ||
+                                    summaryLower.includes('indisponível') ||
+                                    summaryLower.includes('indisponivel');
+            const isBlock = shared?.type === 'block' || hasBlockKeyword;
 
-          if (isBlock) {
-            const allDay = shared?.allDay === 'true' || !!existingEvent.start?.date;
-            if (allDay) {
-              return res.status(409).json({ error: 'slot_occupied', message: 'Este dia está bloqueado para agendamentos.' });
-            }
-            let blockStartVal = shared?.start;
-            let blockEndVal = shared?.end;
-            if (!blockStartVal && existingEvent.start?.dateTime && existingEvent.end?.dateTime) {
-              const parsedStart = parseDateTimeToSaoPaulo(existingEvent.start.dateTime);
-              const parsedEnd = parseDateTimeToSaoPaulo(existingEvent.end.dateTime);
-              if (parsedStart && parsedEnd) {
-                blockStartVal = parsedStart.time;
-                blockEndVal = parsedEnd.time;
+            if (isBlock) {
+              const allDay = shared?.allDay === 'true' || !!existingEvent.start?.date;
+              if (allDay) {
+                return res.status(409).json({ error: 'slot_occupied', message: 'Este dia está bloqueado para agendamentos.' });
               }
-            }
-            if (blockStartVal && blockEndVal) {
-              const bStart = timeToMinutes(blockStartVal);
-              const bEnd = timeToMinutes(blockEndVal);
+              let blockStartVal = shared?.start;
+              let blockEndVal = shared?.end;
+              if (!blockStartVal && existingEvent.start?.dateTime && existingEvent.end?.dateTime) {
+                const parsedStart = parseDateTimeToSaoPaulo(existingEvent.start.dateTime);
+                const parsedEnd = parseDateTimeToSaoPaulo(existingEvent.end.dateTime);
+                if (parsedStart && parsedEnd) {
+                  blockStartVal = parsedStart.time;
+                  blockEndVal = parsedEnd.time;
+                }
+              }
+              if (blockStartVal && blockEndVal) {
+                const bStart = timeToMinutes(blockStartVal);
+                const bEnd = timeToMinutes(blockEndVal);
+                if (Math.max(newStart, bStart) < Math.min(newEnd, bEnd)) {
+                  return res.status(409).json({ error: 'slot_occupied', message: 'Este horário está em um período bloqueado.' });
+                }
+              }
+            } else {
+              let bookingTimeVal = shared?.time;
+              if (!bookingTimeVal && existingEvent.start?.dateTime) {
+                const parsedStart = parseDateTimeToSaoPaulo(existingEvent.start.dateTime);
+                if (parsedStart) {
+                  bookingTimeVal = parsedStart.time;
+                }
+              }
+              if (!bookingTimeVal) bookingTimeVal = '08:00';
+
+              let bookingService = shared?.service || '';
+              if (!bookingService) {
+                const parts = summary.split(' - ');
+                if (parts.length >= 2) {
+                  bookingService = parts.slice(0, -1).join(' - ').trim();
+                } else {
+                  bookingService = summary;
+                }
+              }
+
+              const bStart = timeToMinutes(bookingTimeVal);
+              const bDuration = getBookingDuration(bookingService);
+              const bEnd = bStart + bDuration;
+
               if (Math.max(newStart, bStart) < Math.min(newEnd, bEnd)) {
-                return res.status(409).json({ error: 'slot_occupied', message: 'Este horário está em um período bloqueado.' });
+                return res.status(409).json({ error: 'slot_occupied', message: 'Este horário já foi agendado por outra pessoa.' });
               }
-            }
-          } else {
-            let bookingTimeVal = shared?.time;
-            if (!bookingTimeVal && existingEvent.start?.dateTime) {
-              const parsedStart = parseDateTimeToSaoPaulo(existingEvent.start.dateTime);
-              if (parsedStart) {
-                bookingTimeVal = parsedStart.time;
-              }
-            }
-            if (!bookingTimeVal) bookingTimeVal = '08:00';
-
-            let bookingService = shared?.service || '';
-            if (!bookingService) {
-              const parts = summary.split(' - ');
-              if (parts.length >= 2) {
-                bookingService = parts.slice(0, -1).join(' - ').trim();
-              } else {
-                bookingService = summary;
-              }
-            }
-
-            const bStart = timeToMinutes(bookingTimeVal);
-            const bDuration = getBookingDuration(bookingService);
-            const bEnd = bStart + bDuration;
-
-            if (Math.max(newStart, bStart) < Math.min(newEnd, bEnd)) {
-              return res.status(409).json({ error: 'slot_occupied', message: 'Este horário já foi agendado por outra pessoa.' });
             }
           }
         }
@@ -446,26 +448,33 @@ export default async function handler(req: any, res: any) {
         try {
           insertedEvent = await calendar.events.insert({
             calendarId: activeCalendarId,
-            sendUpdates: 'all',
             requestBody: insertPayload,
           });
         } catch (insertErr: any) {
-          if ((insertErr?.code === 404 || insertErr?.message?.includes('Not Found')) && activeCalendarId !== DEFAULT_STUDIO_CALENDAR_ID) {
-            activeCalendarId = DEFAULT_STUDIO_CALENDAR_ID;
+          console.warn("Standard insert failed, falling back to clean insert:", insertErr?.message || insertErr);
+          const fallbackPayload = {
+            summary: title,
+            description,
+            start: { dateTime: startDateTime, timeZone: 'America/Sao_Paulo' },
+            end: { dateTime: endDateTime, timeZone: 'America/Sao_Paulo' },
+            reminders: {
+              useDefault: false,
+              overrides: [
+                { method: 'popup', minutes: 60 },
+                { method: 'popup', minutes: 15 },
+              ],
+            },
+            extendedProperties: insertPayload.extendedProperties,
+          };
+
+          try {
             insertedEvent = await calendar.events.insert({
-              calendarId: activeCalendarId,
-              sendUpdates: 'all',
-              requestBody: insertPayload,
+              calendarId: DEFAULT_STUDIO_CALENDAR_ID,
+              requestBody: fallbackPayload,
             });
-          } else if (insertPayload.id) {
-            delete insertPayload.id;
-            insertedEvent = await calendar.events.insert({
-              calendarId: activeCalendarId,
-              sendUpdates: 'all',
-              requestBody: insertPayload,
-            });
-          } else {
-            throw insertErr;
+          } catch (cleanErr: any) {
+            console.error("Clean insert fallback failed:", cleanErr?.message || cleanErr);
+            throw cleanErr;
           }
         }
 
@@ -619,7 +628,6 @@ export default async function handler(req: any, res: any) {
           await calendar.events.update({
             calendarId: activeCalendarId,
             eventId,
-            sendUpdates: 'all',
             requestBody: updatePayload,
           });
         } catch (updateErr: any) {
@@ -628,7 +636,6 @@ export default async function handler(req: any, res: any) {
             await calendar.events.update({
               calendarId: activeCalendarId,
               eventId,
-              sendUpdates: 'all',
               requestBody: updatePayload,
             });
           } else {

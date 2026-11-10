@@ -46,6 +46,7 @@ const AdminPanel = () => {
   const [manualDate, setManualDate] = useState('');
   const [manualTime, setManualTime] = useState('');
   const [showSuccess, setShowSuccess] = useState(false);
+  const [isAddingManual, setIsAddingManual] = useState(false);
 
   // Schedule block state
   const [addMode, setAddMode] = useState<'booking' | 'block'>('booking');
@@ -129,13 +130,23 @@ const AdminPanel = () => {
       })
       .then((data) => {
         if (Array.isArray(data.bookings)) {
-          const active = data.bookings.filter((b: Booking) => b.status !== 'completed');
-          const done = data.bookings.filter((b: Booking) => b.status === 'completed');
+          const apiActive = data.bookings.filter((b: Booking) => b.status !== 'completed');
+          const apiDone = data.bookings.filter((b: Booking) => b.status === 'completed');
           
-          saveBookings(active);
-          saveCompleted(done);
-          setBookings(active);
-          setCompleted(done);
+          // Merge local bookings to avoid wiping recently added bookings that are still propagating
+          const currentLocal = getBookings();
+          const mergedActive = [...apiActive];
+          currentLocal.forEach(lb => {
+            const lbIdNorm = lb.id.replace(/-/g, '').toLowerCase();
+            if (!mergedActive.some(ab => ab.id === lb.id || (ab.googleEventId && ab.googleEventId.toLowerCase() === lbIdNorm))) {
+              mergedActive.push(lb);
+            }
+          });
+
+          saveBookings(mergedActive);
+          saveCompleted(apiDone);
+          setBookings(mergedActive);
+          setCompleted(apiDone);
         }
         if (Array.isArray(data.blocks)) {
           saveBlocks(data.blocks);
@@ -387,11 +398,14 @@ const AdminPanel = () => {
   };
 
   // Manual add → goes to BOOKINGS (agendados), not completed
-  const handleAddManualService = () => {
-    if (!manualService || !manualPrice || !manualName || !manualDate || !manualTime) return;
+  const handleAddManualService = async () => {
+    if (!manualService || !manualPrice || !manualName || !manualDate || !manualTime) {
+      toast.error("Por favor, preencha todos os campos do agendamento.");
+      return;
+    }
 
     if (manualDate.length < 10) {
-      alert("Por favor, digite a data completa no formato DD/MM/AAAA");
+      toast.error("Por favor, digite a data completa no formato DD/MM/AAAA");
       return;
     }
 
@@ -408,42 +422,52 @@ const AdminPanel = () => {
 
     // Immediate local feedback
     addBooking(booking);
+    setBookings(getBookings());
     
     // Find service duration
     const svc = SERVICES.find(s => s.name === manualService);
     const duration = svc ? svc.time : 150;
 
-    // Sync manual booking to Google Calendar via Serverless API
-    fetch('/api/calendar', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        type: 'booking',
-        booking,
-        duration,
-      }),
-    })
-      .then((res) => {
-        if (!res.ok) throw new Error('Falha ao adicionar agendamento manual');
-        console.log("Manual booking synced to Google Calendar");
-        reload();
-      })
-      .catch((err) => {
-        console.error("Error syncing manual booking to Google Calendar:", err);
+    setIsAddingManual(true);
+
+    try {
+      const res = await fetch('/api/calendar', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          type: 'booking',
+          booking,
+          duration,
+          source: 'admin',
+        }),
       });
 
-    reload();
-    setManualService('');
-    setManualPrice('');
-    setManualName('');
-    setManualPhone('');
-    setManualDate('');
-    setManualTime('');
-    setShowSuccess(true);
-    setTab('bookings');
-    setTimeout(() => setShowSuccess(false), 2500);
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.message || 'Falha ao sincronizar com Google Agenda');
+      }
+
+      toast.success('Agendamento adicionado com sucesso!');
+      setManualService('');
+      setManualPrice('');
+      setManualName('');
+      setManualPhone('');
+      setManualDate('');
+      setManualTime('');
+      setShowSuccess(true);
+      setTab('bookings');
+      reload();
+    } catch (err: any) {
+      console.error("Error adding manual booking:", err);
+      toast.error(`Aviso: ${err.message || 'Erro ao sincronizar'}. O agendamento foi salvo localmente.`);
+      setTab('bookings');
+      reload();
+    } finally {
+      setIsAddingManual(false);
+      setTimeout(() => setShowSuccess(false), 2500);
+    }
   };
 
   const handleSaveBlock = async () => {
@@ -1155,10 +1179,19 @@ const AdminPanel = () => {
 
                     <button
                       onClick={handleAddManualService}
-                      disabled={!manualService || !manualPrice || !manualName || !manualDate || !manualTime}
+                      disabled={isAddingManual || !manualService || !manualPrice || !manualName || !manualDate || !manualTime}
                       className="w-full py-4 bg-primary text-primary-foreground font-bold rounded-xl transition-all hover:shadow-[0_0_25px_-5px_hsl(6_48%_68%/0.5)] hover:scale-[1.02] active:scale-[0.98] disabled:opacity-30 disabled:hover:shadow-none disabled:hover:scale-100 flex items-center justify-center gap-2"
                     >
-                      <Plus className="w-5 h-5" /> Adicionar aos Agendamentos
+                      {isAddingManual ? (
+                        <>
+                          <div className="w-4 h-4 rounded-full border-2 border-primary-foreground/30 border-t-primary-foreground animate-spin" />
+                          Salvando agendamento...
+                        </>
+                      ) : (
+                        <>
+                          <Plus className="w-5 h-5" /> Adicionar aos Agendamentos
+                        </>
+                      )}
                     </button>
                   </div>
                 ) : (
