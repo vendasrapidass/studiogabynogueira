@@ -575,6 +575,8 @@ export default async function handler(req: any, res: any) {
       const eventId = id.replace(/-/g, '').toLowerCase();
 
       if (type === 'booking') {
+        const targetEventId = (req.body.googleEventId || req.body.id || id).replace(/-/g, '').toLowerCase();
+
         const [d, m, y] = booking.date.split('/');
         const isoDate = `${y}-${m}-${d}`;
         const startDateTime = `${isoDate}T${booking.time}:00`;
@@ -601,7 +603,6 @@ export default async function handler(req: any, res: any) {
           description,
           start: { dateTime: startDateTime, timeZone: 'America/Sao_Paulo' },
           end: { dateTime: endDateTime, timeZone: 'America/Sao_Paulo' },
-          attendees: attendeesList,
           reminders: {
             useDefault: false,
             overrides: [
@@ -627,18 +628,42 @@ export default async function handler(req: any, res: any) {
         try {
           await calendar.events.update({
             calendarId: activeCalendarId,
-            eventId,
+            eventId: targetEventId,
             requestBody: updatePayload,
           });
         } catch (updateErr: any) {
-          if ((updateErr?.code === 404 || updateErr?.message?.includes('Not Found')) && activeCalendarId !== DEFAULT_STUDIO_CALENDAR_ID) {
-            activeCalendarId = DEFAULT_STUDIO_CALENDAR_ID;
-            await calendar.events.update({
-              calendarId: activeCalendarId,
-              eventId,
-              requestBody: updatePayload,
-            });
+          if (updateErr?.code === 404 || updateErr?.message?.includes('Not Found')) {
+            console.log(`Event ${targetEventId} not found on calendar for update, creating via insert (upsert)...`);
+            try {
+              const insertPayload = {
+                id: targetEventId.length <= 1024 && /^[a-v0-9]+$/.test(targetEventId) ? targetEventId : undefined,
+                ...updatePayload,
+              };
+              await calendar.events.insert({
+                calendarId: activeCalendarId,
+                requestBody: insertPayload,
+              });
+            } catch (insErr: any) {
+              console.warn("Upsert with id failed, retrying insert without id:", insErr?.message || insErr);
+              await calendar.events.insert({
+                calendarId: activeCalendarId,
+                requestBody: updatePayload,
+              });
+            }
           } else {
+            console.warn("Update error, attempting fallback update:", updateErr?.message || updateErr);
+            if (activeCalendarId !== DEFAULT_STUDIO_CALENDAR_ID) {
+              try {
+                await calendar.events.update({
+                  calendarId: DEFAULT_STUDIO_CALENDAR_ID,
+                  eventId: targetEventId,
+                  requestBody: updatePayload,
+                });
+                return res.status(200).json({ success: true });
+              } catch (e) {
+                // fall through
+              }
+            }
             throw updateErr;
           }
         }

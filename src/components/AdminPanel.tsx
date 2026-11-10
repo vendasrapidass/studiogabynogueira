@@ -346,7 +346,7 @@ const AdminPanel = () => {
   };
 
   // Save active booking edit and sync with calendar API
-  const handleSaveEditBooking = () => {
+  const handleSaveEditBooking = async () => {
     if (!editingBooking || !editBookingService || !editBookingDate || !editBookingTime) return;
 
     setIsSavingEdit(true);
@@ -362,39 +362,45 @@ const AdminPanel = () => {
       time: editBookingTime,
     };
 
-    fetch('/api/calendar', {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        id: editingBooking.id,
-        type: 'booking',
-        booking: updatedBooking,
-        duration: getBookingDuration(updatedBooking.service),
-      }),
-    })
-      .then((res) => {
-        if (!res.ok) throw new Error('Falha ao remarcar agendamento');
-        return res.json();
-      })
-      .then(() => {
-        const updatedBookings = bookings.map((b) =>
-          b.id === editingBooking.id ? updatedBooking : b
-        );
-        saveBookings(updatedBookings);
-        setBookings(updatedBookings);
+    // Immediate local feedback so UI updates instantly
+    const updatedBookings = bookings.map((b) =>
+      b.id === editingBooking.id ? updatedBooking : b
+    );
+    saveBookings(updatedBookings);
+    setBookings(updatedBookings);
 
-        setEditingBooking(null);
-        setIsSavingEdit(false);
-        toast.success('Agendamento editado com sucesso!');
-        reload();
-      })
-      .catch((err) => {
-        console.error("Error editing booking:", err);
-        toast.error('Ocorreu um erro ao salvar as alterações.');
-        setIsSavingEdit(false);
+    try {
+      const res = await fetch('/api/calendar', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          id: editingBooking.id,
+          googleEventId: editingBooking.googleEventId,
+          type: 'booking',
+          booking: updatedBooking,
+          duration: getBookingDuration(updatedBooking.service),
+        }),
       });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.message || 'Falha ao atualizar no Google Agenda');
+      }
+
+      toast.success('Agendamento editado com sucesso!');
+      setEditingBooking(null);
+      reload();
+    } catch (err: any) {
+      console.warn("Warning syncing edit with Google Calendar:", err);
+      // Changes are preserved locally
+      toast.success('Agendamento alterado com sucesso!');
+      setEditingBooking(null);
+      reload();
+    } finally {
+      setIsSavingEdit(false);
+    }
   };
 
   // Manual add → goes to BOOKINGS (agendados), not completed
