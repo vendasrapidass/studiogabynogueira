@@ -487,6 +487,7 @@ export default async function handler(req: any, res: any) {
           insertedEvent = await calendar.events.insert({
             calendarId: activeCalendarId,
             requestBody: insertPayload,
+            sendUpdates: 'all',
           });
         } catch (insertErr: any) {
           console.warn("Standard insert failed, falling back to clean insert:", insertErr?.message || insertErr);
@@ -495,6 +496,7 @@ export default async function handler(req: any, res: any) {
             description,
             start: { dateTime: startDateTime, timeZone: 'America/Sao_Paulo' },
             end: { dateTime: endDateTime, timeZone: 'America/Sao_Paulo' },
+            attendees: attendeesList,
             reminders: {
               useDefault: false,
               overrides: [
@@ -509,6 +511,7 @@ export default async function handler(req: any, res: any) {
             insertedEvent = await calendar.events.insert({
               calendarId: DEFAULT_STUDIO_CALENDAR_ID,
               requestBody: fallbackPayload,
+              sendUpdates: 'all',
             });
           } catch (cleanErr: any) {
             console.error("Clean insert fallback failed:", cleanErr?.message || cleanErr);

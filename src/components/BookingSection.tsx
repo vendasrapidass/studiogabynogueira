@@ -24,6 +24,7 @@ const BookingSection = () => {
   const [phone, setPhone] = useState('');
   const [showSuccess, setShowSuccess] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [lastZapUrl, setLastZapUrl] = useState('');
 
   // Estados do Modal Pix
   const [showPixModal, setShowPixModal] = useState(false);
@@ -323,6 +324,7 @@ const BookingSection = () => {
     }
 
     // 4. Conclui o fluxo e abre o WhatsApp
+    setLastZapUrl(zapUrl);
     setIsSubmitting(false);
     setShowPixModal(false);
     setShowSuccess(true);
@@ -667,8 +669,18 @@ const BookingSection = () => {
               <CheckCircle className="w-16 h-16 text-success mx-auto mb-4" />
               <h3 className="text-xl font-bold mb-2">Agendamento Realizado!</h3>
               <p className="text-muted-foreground text-sm">
-                Seu agendamento foi enviado com sucesso. Aguarde a confirmação do Studio pelo WhatsApp.
+                Seu agendamento foi registrado com sucesso. Toque no botão abaixo se a conversa no WhatsApp não abrir automaticamente:
               </p>
+              {lastZapUrl && (
+                <a
+                  href={lastZapUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-5 w-full py-3.5 px-4 bg-[#25D366] hover:bg-[#20bd5a] text-white font-bold rounded-xl transition-all shadow-lg flex items-center justify-center gap-2 text-sm"
+                >
+                  Abrir Conversa no WhatsApp
+                </a>
+              )}
             </motion.div>
           </motion.div>
         )}
