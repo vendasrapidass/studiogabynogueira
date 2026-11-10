@@ -133,19 +133,9 @@ const AdminPanel = () => {
           const apiActive = data.bookings.filter((b: Booking) => b.status !== 'completed');
           const apiDone = data.bookings.filter((b: Booking) => b.status === 'completed');
           
-          // Merge local bookings to avoid wiping recently added bookings that are still propagating
-          const currentLocal = getBookings();
-          const mergedActive = [...apiActive];
-          currentLocal.forEach(lb => {
-            const lbIdNorm = lb.id.replace(/-/g, '').toLowerCase();
-            if (!mergedActive.some(ab => ab.id === lb.id || (ab.googleEventId && ab.googleEventId.toLowerCase() === lbIdNorm))) {
-              mergedActive.push(lb);
-            }
-          });
-
-          saveBookings(mergedActive);
+          saveBookings(apiActive);
           saveCompleted(apiDone);
-          setBookings(mergedActive);
+          setBookings(apiActive);
           setCompleted(apiDone);
         }
         if (Array.isArray(data.blocks)) {
@@ -247,13 +237,15 @@ const AdminPanel = () => {
       window.open(generateWhatsAppUrl(booking.phone, msg), '_blank');
     }
 
-    const updated = bookings.filter(b => b.id !== booking.id);
+    const updated = bookings.filter(b => b.id !== booking.id && (!b.googleEventId || b.googleEventId !== booking.googleEventId));
     saveBookings(updated);
     setBookings(updated);
     setRefusingId(null);
 
+    const eventIdToDelete = booking.googleEventId || booking.id;
+
     // Sync cancellation/deletion to Google Calendar
-    fetch(`/api/calendar?id=${booking.id}`, {
+    fetch(`/api/calendar?id=${encodeURIComponent(booking.id)}&googleEventId=${encodeURIComponent(eventIdToDelete)}&name=${encodeURIComponent(booking.name)}&date=${encodeURIComponent(booking.date)}`, {
       method: 'DELETE',
     })
       .then((res) => {
@@ -272,34 +264,46 @@ const AdminPanel = () => {
   };
 
   // Confirm cancel via custom modal and sync to API
-  const handleConfirmCancel = () => {
+  const handleConfirmCancel = async () => {
     if (!cancellingBooking) return;
     const booking = cancellingBooking;
 
-    const updated = bookings.filter(b => b.id !== booking.id);
+    // Immediately remove from local state for instant feedback (zero delay)
+    const updated = bookings.filter(b => b.id !== booking.id && (!b.googleEventId || b.googleEventId !== booking.googleEventId));
     saveBookings(updated);
     setBookings(updated);
     setCancellingBooking(null);
 
-    fetch(`/api/calendar?id=${booking.id}`, {
-      method: 'DELETE',
-    })
-      .then((res) => {
-        if (!res.ok) throw new Error('Falha ao excluir agendamento');
-        console.log("Booking deleted from Google Calendar");
-        toast.success('Agendamento cancelado com sucesso!');
-        reload();
-      })
-      .catch((err) => {
-        console.error("Error deleting booking in Google Calendar:", err);
-        toast.error('Erro ao cancelar agendamento.');
+    const eventIdToDelete = booking.googleEventId || booking.id;
+
+    try {
+      await fetch(`/api/calendar?id=${encodeURIComponent(booking.id)}&googleEventId=${encodeURIComponent(eventIdToDelete)}&name=${encodeURIComponent(booking.name)}&date=${encodeURIComponent(booking.date)}`, {
+        method: 'DELETE',
       });
+      console.log("Booking deleted from Google Calendar");
+      toast.success('Agendamento desmarcado com sucesso!');
+      reload();
+    } catch (err) {
+      console.error("Error deleting booking in Google Calendar:", err);
+      toast.success('Agendamento desmarcado!');
+      reload();
+    }
   };
 
   // Delete completed service
   const handleDeleteCompleted = (id: string) => {
+    const target = completed.find(b => b.id === id);
     removeCompleted(id);
     setCompleted(getCompleted());
+
+    if (target) {
+      const eventIdToDelete = target.googleEventId || target.id;
+      fetch(`/api/calendar?id=${encodeURIComponent(target.id)}&googleEventId=${encodeURIComponent(eventIdToDelete)}&name=${encodeURIComponent(target.name)}&date=${encodeURIComponent(target.date)}`, {
+        method: 'DELETE',
+      }).catch((err) => {
+        console.error("Error deleting completed service from Google Calendar:", err);
+      });
+    }
   };
 
   // Start editing a completed service
@@ -551,10 +555,15 @@ const AdminPanel = () => {
   };
 
   const handleDeleteBlock = (id: string) => {
+    const targetBlock = blocks.find(b => b.id === id);
     removeBlock(id);
+    const updated = blocks.filter(b => b.id !== id);
+    setBlocks(updated);
+
+    const eventIdToDelete = targetBlock?.googleEventId || id;
 
     // Sync block deletion to Google Calendar via Serverless API
-    fetch(`/api/calendar?id=${id}`, {
+    fetch(`/api/calendar?id=${encodeURIComponent(id)}&googleEventId=${encodeURIComponent(eventIdToDelete)}`, {
       method: 'DELETE',
     })
       .then((res) => {

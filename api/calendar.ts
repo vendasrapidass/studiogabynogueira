@@ -117,22 +117,20 @@ export default async function handler(req: any, res: any) {
 
       for (const event of events) {
         if (!event.id) continue;
+        if (event.status === 'cancelled') continue;
 
         const shared = event.extendedProperties?.shared;
         const summary = event.summary || '';
         const summaryLower = summary.toLowerCase();
 
         // 1. Correção de Bloqueios (Blocks)
-        // Se o summary contiver "Folga", "Bloqueado", "Bloqueio", "Indisponível"
-        // OU não possuir um formato de agendamento (não contém " - "), é considerado um block.
         const hasBlockKeyword = summaryLower.includes('folga') || 
                                 summaryLower.includes('bloqueado') || 
                                 summaryLower.includes('bloqueio') ||
                                 summaryLower.includes('indisponível') ||
                                 summaryLower.includes('indisponivel');
         
-        const hasDashSeparator = summary.includes(' - ');
-        const isBlock = shared?.type === 'block' || hasBlockKeyword || !hasDashSeparator;
+        const isBlock = shared?.type === 'block' || hasBlockKeyword;
 
         // Determina se o evento já passou
         const endStr = event.end?.dateTime || event.end?.date;
@@ -346,6 +344,7 @@ export default async function handler(req: any, res: any) {
         if (!isAdmin) {
           for (const existingEvent of existingEvents) {
             if (existingEvent.id === eventId) continue;
+            if (existingEvent.status === 'cancelled') continue;
 
             const shared = existingEvent.extendedProperties?.shared;
             const summary = existingEvent.summary || '';
@@ -737,39 +736,96 @@ export default async function handler(req: any, res: any) {
     // DELETE: Excluir evento (agendamento ou bloqueio)
     // ----------------------------------------------------
     if (req.method === 'DELETE') {
-      const id = (req.query.id as string) || req.body.id;
-      if (!id) {
+      const id = (req.query.id as string) || req.body?.id;
+      const googleEventId = (req.query.googleEventId as string) || req.body?.googleEventId;
+      const clientName = ((req.query.name as string) || req.body?.name || '').toLowerCase().trim();
+      const clientDate = ((req.query.date as string) || req.body?.date || '').trim();
+
+      if (!id && !googleEventId) {
         return res.status(400).json({ error: 'ID is required' });
       }
-      const eventId = id.replace(/-/g, '').toLowerCase();
 
-      try {
-        await calendar.events.delete({
-          calendarId: activeCalendarId,
-          eventId,
-        });
-      } catch (err: any) {
-        // Se o evento já tiver sido excluído manualmente no Google Calendar, ignora o erro (404)
-        if (err.code === 404 || err.message?.includes('Not Found')) {
-          return res.status(200).json({ success: true, message: 'Event already removed' });
-        }
-        if (activeCalendarId !== DEFAULT_STUDIO_CALENDAR_ID) {
-          try {
-            await calendar.events.delete({
-              calendarId: DEFAULT_STUDIO_CALENDAR_ID,
-              eventId,
-            });
-            return res.status(200).json({ success: true });
-          } catch (delErr: any) {
-            if (delErr.code === 404 || delErr.message?.includes('Not Found')) {
-              return res.status(200).json({ success: true, message: 'Event already removed' });
-            }
-          }
-        }
-        throw err;
+      let deletedCount = 0;
+
+      // 1. Tenta exclusão direta por candidatos de ID
+      const candidates = new Set<string>();
+      if (googleEventId) candidates.add(googleEventId);
+      if (id) {
+        candidates.add(id);
+        candidates.add(id.replace(/-/g, '').toLowerCase());
       }
 
-      return res.status(200).json({ success: true });
+      for (const cId of candidates) {
+        try {
+          await calendar.events.delete({
+            calendarId: activeCalendarId,
+            eventId: cId,
+          });
+          deletedCount++;
+          console.log(`Deleted event directly by candidate ID: ${cId}`);
+          break;
+        } catch (delErr: any) {
+          if (delErr.code !== 404 && !delErr.message?.includes('Not Found')) {
+            console.warn(`Error deleting candidate ${cId}:`, delErr?.message);
+          }
+        }
+      }
+
+      // 2. Se a exclusão direta não encontrou, busca no Google Calendar pelo ID ou nome/data
+      if (deletedCount === 0) {
+        try {
+          const listRes = await calendar.events.list({
+            calendarId: activeCalendarId,
+            timeMin: new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString(),
+            timeMax: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
+            singleEvents: true,
+            maxResults: 2500,
+          });
+
+          const rawId = (id || '').toLowerCase();
+          const cleanId = rawId.replace(/-/g, '');
+          const gId = (googleEventId || '').toLowerCase();
+
+          const toDelete = (listRes.data.items || []).filter(ev => {
+            if (!ev.id) return false;
+            if (ev.status === 'cancelled') return false;
+
+            const evId = ev.id.toLowerCase();
+            if (gId && evId === gId) return true;
+            if (evId === cleanId || evId === rawId) return true;
+
+            const shId = (ev.extendedProperties?.shared?.id || '').toLowerCase();
+            if (shId && (shId === rawId || shId.replace(/-/g, '') === cleanId)) return true;
+
+            // Match por nome e data como garantia
+            if (clientName && clientDate) {
+              const summary = (ev.summary || '').toLowerCase();
+              const startStr = ev.start?.dateTime || ev.start?.date || '';
+              const [d, m, y] = clientDate.split('/');
+              const isoMatch = `${y}-${m}-${d}`;
+              if (summary.includes(clientName) && startStr.includes(isoMatch)) {
+                return true;
+              }
+            }
+            return false;
+          });
+
+          for (const ev of toDelete) {
+            if (ev.id) {
+              await calendar.events.delete({
+                calendarId: activeCalendarId,
+                eventId: ev.id,
+              });
+              deletedCount++;
+              console.log(`Found and deleted matched event ${ev.id} (${ev.summary}) from Google Calendar`);
+            }
+          }
+        } catch (searchErr) {
+          console.error("Error searching calendar for event deletion:", searchErr);
+        }
+      }
+
+      return res.status(200).json({ success: true, count: deletedCount });
     }
 
     return res.status(405).json({ error: 'Method not allowed' });
