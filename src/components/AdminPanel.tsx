@@ -68,14 +68,65 @@ const AdminPanel = () => {
     return v;
   };
 
+  const toDDMMYYYY = (dateStr: string): string => {
+    if (!dateStr) return '';
+    const clean = dateStr.trim();
+    if (clean.includes('-')) {
+      const parts = clean.split('T')[0].split('-');
+      if (parts.length === 3) {
+        return `${parts[2].padStart(2, '0')}/${parts[1].padStart(2, '0')}/${parts[0]}`;
+      }
+    }
+    if (clean.includes('/')) {
+      const parts = clean.split('/');
+      if (parts.length === 3) {
+        if (parts[0].length === 4) {
+          return `${parts[2].padStart(2, '0')}/${parts[1].padStart(2, '0')}/${parts[0]}`;
+        }
+        return `${parts[0].padStart(2, '0')}/${parts[1].padStart(2, '0')}/${parts[2]}`;
+      }
+    }
+    return clean;
+  };
+
+  const toYYYYMMDD = (dateStr: string): string => {
+    if (!dateStr) return '';
+    const clean = dateStr.trim();
+    if (clean.includes('/')) {
+      const parts = clean.split('/');
+      if (parts.length === 3) {
+        if (parts[2].length === 4) {
+          return `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+        }
+      }
+    }
+    if (clean.includes('-')) {
+      return clean.split('T')[0];
+    }
+    return clean;
+  };
+
+  const parseItemDate = (dateStr: string): Date | null => {
+    if (!dateStr) return null;
+    const clean = dateStr.trim();
+    if (clean.includes('/')) {
+      const parts = clean.split('/').map(Number);
+      if (parts.length === 3) {
+        if (parts[0] > 1000) return new Date(parts[0], parts[1] - 1, parts[2], 12, 0, 0);
+        return new Date(parts[2], parts[1] - 1, parts[0], 12, 0, 0);
+      }
+    }
+    if (clean.includes('-')) {
+      const parts = clean.split('T')[0].split('-').map(Number);
+      if (parts.length === 3) {
+        return new Date(parts[0], parts[1] - 1, parts[2], 12, 0, 0);
+      }
+    }
+    return null;
+  };
+
   const parseDateString = (str: string): Date | null => {
-    const parts = str.split('/');
-    if (parts.length !== 3) return null;
-    const d = parseInt(parts[0], 10);
-    const m = parseInt(parts[1], 10) - 1;
-    const y = parseInt(parts[2], 10);
-    if (isNaN(d) || isNaN(m) || isNaN(y)) return null;
-    return new Date(y, m, d, 12, 0, 0);
+    return parseItemDate(str);
   };
 
   const formatDateToString = (date: Date): string => {
@@ -133,14 +184,43 @@ const AdminPanel = () => {
           const apiActive = data.bookings.filter((b: Booking) => b.status !== 'completed');
           const apiDone = data.bookings.filter((b: Booking) => b.status === 'completed');
           
-          saveBookings(apiActive);
+          // Preserva agendamentos recém-criados localmente para não sumirem por delay de replicação do Google Agenda
+          const currentLocalActive = getBookings().filter(b => b.status !== 'completed');
+          const mergedActive = [...apiActive];
+          currentLocalActive.forEach(lb => {
+            const lbNorm = lb.id.replace(/-/g, '').toLowerCase();
+            const exists = mergedActive.some(ab => 
+              ab.id === lb.id || 
+              (ab.googleEventId && (ab.googleEventId === lb.id || ab.googleEventId === lb.googleEventId)) ||
+              ab.id.replace(/-/g, '').toLowerCase() === lbNorm
+            );
+            if (!exists) {
+              mergedActive.push(lb);
+            }
+          });
+
+          saveBookings(mergedActive);
           saveCompleted(apiDone);
-          setBookings(apiActive);
+          setBookings(mergedActive);
           setCompleted(apiDone);
         }
         if (Array.isArray(data.blocks)) {
-          saveBlocks(data.blocks);
-          setBlocks(data.blocks);
+          const currentLocalBlocks = getBlocks();
+          const mergedBlocks = [...data.blocks];
+          currentLocalBlocks.forEach(lb => {
+            const lbNorm = lb.id.replace(/-/g, '').toLowerCase();
+            const exists = mergedBlocks.some(ab => 
+              ab.id === lb.id || 
+              (ab.googleEventId && (ab.googleEventId === lb.id || ab.googleEventId === lb.googleEventId)) ||
+              ab.id.replace(/-/g, '').toLowerCase() === lbNorm
+            );
+            if (!exists) {
+              mergedBlocks.push(lb);
+            }
+          });
+
+          saveBlocks(mergedBlocks);
+          setBlocks(mergedBlocks);
         }
       })
       .catch((err) => {
@@ -332,8 +412,7 @@ const AdminPanel = () => {
   // Start editing active booking
   const startEditBooking = (b: Booking) => {
     setEditingBooking(b);
-    const [d, m, y] = b.date.split('/');
-    setEditBookingDate(`${y}-${m}-${d}`);
+    setEditBookingDate(toYYYYMMDD(b.date));
     setEditBookingTime(b.time);
     setEditBookingService(b.service);
     setEditBookingPrice(b.price);
@@ -355,8 +434,7 @@ const AdminPanel = () => {
 
     setIsSavingEdit(true);
 
-    const [y, m, d] = editBookingDate.split('-');
-    const formattedDate = `${d}/${m}/${y}`;
+    const formattedDate = toDDMMYYYY(editBookingDate);
 
     const updatedBooking: Booking = {
       ...editingBooking,
@@ -457,6 +535,13 @@ const AdminPanel = () => {
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         throw new Error(data.message || 'Falha ao sincronizar com Google Agenda');
+      }
+
+      const resData = await res.json().catch(() => ({}));
+      if (resData.eventId) {
+        const updatedList = getBookings().map(b => b.id === booking.id ? { ...b, googleEventId: resData.eventId } : b);
+        saveBookings(updatedList);
+        setBookings(updatedList);
       }
 
       toast.success('Agendamento adicionado com sucesso!');
@@ -587,8 +672,8 @@ const AdminPanel = () => {
   const filteredCompleted = useMemo(() => {
     const now = new Date();
     return completed.filter(b => {
-      const [d, m, y] = b.date.split('/').map(Number);
-      const date = new Date(y, m - 1, d);
+      const date = parseItemDate(b.date);
+      if (!date) return true;
       switch (filter) {
         case 'today': return date.toDateString() === now.toDateString();
         case 'week': {
@@ -1220,13 +1305,14 @@ const AdminPanel = () => {
                         <button
                           type="button"
                           onClick={() => setBlockType('single')}
-                          className={`py-2.5 px-3 text-xs font-bold rounded-lg transition-all ${
+                          className={`py-3 px-3 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 ${
                             blockType === 'single'
-                              ? 'bg-primary text-primary-foreground shadow-sm shadow-primary/20'
-                              : 'text-muted-foreground hover:text-foreground'
+                              ? 'bg-primary text-primary-foreground shadow-sm shadow-primary/20 scale-[1.01]'
+                              : 'text-muted-foreground hover:text-foreground bg-secondary/30'
                           }`}
                         >
-                          Dia Único
+                          <span>📅</span>
+                          <span>Bloquear 1 Dia</span>
                         </button>
                         <button
                           type="button"
@@ -1234,13 +1320,14 @@ const AdminPanel = () => {
                             setBlockType('range');
                             setBlockAllDay(true);
                           }}
-                          className={`py-2.5 px-3 text-xs font-bold rounded-lg transition-all ${
+                          className={`py-3 px-3 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 ${
                             blockType === 'range'
-                              ? 'bg-primary text-primary-foreground shadow-sm shadow-primary/20'
-                              : 'text-muted-foreground hover:text-foreground'
+                              ? 'bg-primary text-primary-foreground shadow-sm shadow-primary/20 scale-[1.01]'
+                              : 'text-muted-foreground hover:text-foreground bg-secondary/30'
                           }`}
                         >
-                          Vários Dias / Período
+                          <span>🗓️</span>
+                          <span>Mais de 1 Dia (Vários)</span>
                         </button>
                       </div>
                     </div>

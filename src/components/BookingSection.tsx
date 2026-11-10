@@ -122,13 +122,12 @@ const BookingSection = () => {
 
         // Lunch break check:
         // Weekdays: 12:00 to 13:00 (720 to 780 minutes)
-        // Saturdays: 11:30 to 12:30 (690 to 750 minutes)
-        // Permite horários configurados diretamente como 11:00 (dias sem academia)
+        // Saturdays: 08:00, 11:00 e 14:00 são os horários oficiais (sem corte de almoço)
         const isSaturday = selectedDate.getDay() === 6;
-        const lunchStart = isSaturday ? 690 : 720;
-        const lunchEnd = isSaturday ? 750 : 780;
+        const lunchStart = 720;
+        const lunchEnd = 780;
 
-        const overlapsLunch = timeStr !== '11:00' && Math.max(start, lunchStart) < Math.min(end, lunchEnd);
+        const overlapsLunch = !isSaturday && timeStr !== '11:00' && Math.max(start, lunchStart) < Math.min(end, lunchEnd);
         if (overlapsLunch) {
           return false;
         }
@@ -368,19 +367,54 @@ const BookingSection = () => {
         base64 = await compressAndGetBase64(comprovanteFile);
       }
 
-      const res = await fetch('/api/upload', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          image: base64,
-          filename: comprovanteFile?.name || 'comprovante.jpg',
-        }),
-      });
+      // 1. Tenta upload via backend (Imgur oficial via servidor)
+      try {
+        const res = await fetch('/api/upload', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            image: base64,
+            filename: comprovanteFile?.name || 'comprovante.jpg',
+          }),
+        });
 
-      if (res.ok) {
-        const data = await res.json();
-        if (data.success && data.url) {
-          comprovanteUrl = data.url;
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success && data.url) {
+            comprovanteUrl = data.url;
+          }
+        }
+      } catch (backendErr) {
+        console.warn('Backend upload error, attempting client Imgur fallback...', backendErr);
+      }
+
+      // 2. Fallback direto Imgur do navegador caso backend oscile
+      if (!comprovanteUrl && base64) {
+        const imgurClientIds = ['546c25a59c58ad7', 'c8c692df5e0cba0', 'e9df0fb99f6dcf7'];
+        const cleanB64 = base64.replace(/^data:image\/\w+;base64,/, '');
+
+        for (const cId of imgurClientIds) {
+          try {
+            const imgurForm = new FormData();
+            imgurForm.append('image', cleanB64);
+            imgurForm.append('type', 'base64');
+
+            const clientRes = await fetch('https://api.imgur.com/3/image', {
+              method: 'POST',
+              headers: { Authorization: `Client-ID ${cId}` },
+              body: imgurForm,
+            });
+
+            if (clientRes.ok) {
+              const cData = await clientRes.json().catch(() => ({}));
+              if (cData.success && cData.data?.link) {
+                comprovanteUrl = cData.data.link.replace('http://', 'https://');
+                break;
+              }
+            }
+          } catch (cErr) {
+            console.warn(`Client Imgur fallback ${cId} failed:`, cErr);
+          }
         }
       }
     } catch (error) {

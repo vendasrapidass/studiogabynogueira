@@ -44,6 +44,45 @@ function parseDateTimeToSaoPaulo(isoString: string) {
   }
 }
 
+function toIsoDate(dateStr: string): string {
+  if (!dateStr) return '';
+  const clean = dateStr.trim();
+  if (clean.includes('-')) {
+    return clean.split('T')[0];
+  }
+  if (clean.includes('/')) {
+    const parts = clean.split('/');
+    if (parts.length === 3) {
+      if (parts[0].length === 4) {
+        // YYYY/MM/DD
+        return `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
+      }
+      // DD/MM/YYYY
+      return `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+    }
+  }
+  return clean;
+}
+
+function toBrazilianDate(dateStr: string): string {
+  if (!dateStr) return '';
+  const clean = dateStr.trim();
+  if (clean.includes('-')) {
+    const parts = clean.split('T')[0].split('-');
+    if (parts.length === 3) {
+      return `${parts[2].padStart(2, '0')}/${parts[1].padStart(2, '0')}/${parts[0]}`;
+    }
+  }
+  if (clean.includes('/')) {
+    const parts = clean.split('/');
+    if (parts.length === 3 && parts[0].length === 4) {
+      // YYYY/MM/DD
+      return `${parts[2].padStart(2, '0')}/${parts[1].padStart(2, '0')}/${parts[0]}`;
+    }
+  }
+  return clean;
+}
+
 export default async function handler(req: any, res: any) {
   // CORS Headers
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -255,8 +294,8 @@ export default async function handler(req: any, res: any) {
         // O ID de evento do Google Calendar precisa ser base32hex compatível (a-v e 0-9)
         const eventId = id.replace(/-/g, '').toLowerCase();
 
-        const [d, m, y] = booking.date.split('/');
-        const isoDate = `${y}-${m}-${d}`;
+        const isoDate = toIsoDate(booking.date);
+        const brazilianDate = toBrazilianDate(booking.date);
         const startDateTime = `${isoDate}T${booking.time}:00`;
 
         // Cálculo determinístico do término baseado nos minutos de duração
@@ -495,8 +534,8 @@ export default async function handler(req: any, res: any) {
           const id = item.id;
           const eventId = id.replace(/-/g, '').toLowerCase();
 
-          const [d, m, y] = item.date.split('/');
-          const isoDate = `${y}-${m}-${d}`;
+          const isoDate = toIsoDate(item.date);
+          const brazilianDate = toBrazilianDate(item.date);
 
           let start: any;
           let end: any;
@@ -504,7 +543,8 @@ export default async function handler(req: any, res: any) {
           if (item.allDay) {
             start = { date: isoDate };
             // O término de eventos de dia inteiro no Google é exclusivo (+1 dia)
-            const dateObj = new Date(Number(y), Number(m) - 1, Number(d), 12, 0, 0);
+            const [y, m, d] = isoDate.split('-').map(Number);
+            const dateObj = new Date(y, m - 1, d, 12, 0, 0);
             dateObj.setDate(dateObj.getDate() + 1);
             const pad = (n: number) => String(n).padStart(2, '0');
             const nextDayStr = `${dateObj.getFullYear()}-${pad(dateObj.getMonth() + 1)}-${pad(dateObj.getDate())}`;
@@ -574,10 +614,10 @@ export default async function handler(req: any, res: any) {
       const eventId = id.replace(/-/g, '').toLowerCase();
 
       if (type === 'booking') {
-        const targetEventId = (req.body.googleEventId || req.body.id || id).replace(/-/g, '').toLowerCase();
+        const targetEventId = req.body.googleEventId || (req.body.id || id).replace(/-/g, '').toLowerCase();
 
-        const [d, m, y] = booking.date.split('/');
-        const isoDate = `${y}-${m}-${d}`;
+        const isoDate = toIsoDate(booking.date);
+        const brazilianDate = toBrazilianDate(booking.date);
         const startDateTime = `${isoDate}T${booking.time}:00`;
 
         const [hour, minute] = booking.time.split(':').map(Number);
@@ -602,6 +642,7 @@ export default async function handler(req: any, res: any) {
           description,
           start: { dateTime: startDateTime, timeZone: 'America/Sao_Paulo' },
           end: { dateTime: endDateTime, timeZone: 'America/Sao_Paulo' },
+          attendees: attendeesList,
           reminders: {
             useDefault: false,
             overrides: [
@@ -618,7 +659,7 @@ export default async function handler(req: any, res: any) {
               phone: booking.phone,
               price: String(booking.price),
               status: booking.status,
-              date: booking.date,
+              date: brazilianDate,
               time: booking.time,
             },
           },
@@ -629,41 +670,42 @@ export default async function handler(req: any, res: any) {
             calendarId: activeCalendarId,
             eventId: targetEventId,
             requestBody: updatePayload,
+            sendUpdates: 'all',
           });
         } catch (updateErr: any) {
-          if (updateErr?.code === 404 || updateErr?.message?.includes('Not Found')) {
-            console.log(`Event ${targetEventId} not found on calendar for update, creating via insert (upsert)...`);
+          console.warn(`Update for event ${targetEventId} failed (${updateErr?.message || updateErr}), attempting upsert/insert...`);
+          try {
+            const insertPayload = {
+              id: targetEventId.length <= 1024 && /^[a-v0-9]+$/.test(targetEventId) ? targetEventId : undefined,
+              ...updatePayload,
+            };
+            await calendar.events.insert({
+              calendarId: activeCalendarId,
+              requestBody: insertPayload,
+              sendUpdates: 'all',
+            });
+          } catch (insErr: any) {
+            console.warn("Upsert with id failed, retrying insert without id:", insErr?.message || insErr);
             try {
-              const insertPayload = {
-                id: targetEventId.length <= 1024 && /^[a-v0-9]+$/.test(targetEventId) ? targetEventId : undefined,
-                ...updatePayload,
-              };
-              await calendar.events.insert({
-                calendarId: activeCalendarId,
-                requestBody: insertPayload,
-              });
-            } catch (insErr: any) {
-              console.warn("Upsert with id failed, retrying insert without id:", insErr?.message || insErr);
               await calendar.events.insert({
                 calendarId: activeCalendarId,
                 requestBody: updatePayload,
+                sendUpdates: 'all',
               });
-            }
-          } else {
-            console.warn("Update error, attempting fallback update:", updateErr?.message || updateErr);
-            if (activeCalendarId !== DEFAULT_STUDIO_CALENDAR_ID) {
-              try {
-                await calendar.events.update({
-                  calendarId: DEFAULT_STUDIO_CALENDAR_ID,
-                  eventId: targetEventId,
-                  requestBody: updatePayload,
-                });
-                return res.status(200).json({ success: true });
-              } catch (e) {
-                // fall through
+            } catch (finalErr: any) {
+              console.error("All update/insert attempts failed:", finalErr?.message || finalErr);
+              if (activeCalendarId !== DEFAULT_STUDIO_CALENDAR_ID) {
+                try {
+                  await calendar.events.insert({
+                    calendarId: DEFAULT_STUDIO_CALENDAR_ID,
+                    requestBody: updatePayload,
+                    sendUpdates: 'all',
+                  });
+                } catch (defErr) {
+                  console.error("Default studio calendar insert also failed:", defErr);
+                }
               }
             }
-            throw updateErr;
           }
         }
 
@@ -671,15 +713,16 @@ export default async function handler(req: any, res: any) {
       }
 
       if (type === 'block') {
-        const [d, m, y] = block.date.split('/');
-        const isoDate = `${y}-${m}-${d}`;
+        const isoDate = toIsoDate(block.date);
+        const brazilianDate = toBrazilianDate(block.date);
 
         let start: any;
         let end: any;
 
         if (block.allDay) {
           start = { date: isoDate };
-          const dateObj = new Date(Number(y), Number(m) - 1, Number(d));
+          const [y, m, d] = isoDate.split('-').map(Number);
+          const dateObj = new Date(y, m - 1, d, 12, 0, 0);
           dateObj.setDate(dateObj.getDate() + 1);
           const pad = (n: number) => String(n).padStart(2, '0');
           const nextDayStr = `${dateObj.getFullYear()}-${pad(dateObj.getMonth() + 1)}-${pad(dateObj.getDate())}`;
@@ -701,7 +744,7 @@ export default async function handler(req: any, res: any) {
               id,
               type: 'block',
               reason: block.reason,
-              date: block.date,
+              date: brazilianDate,
               allDay: String(block.allDay),
               start: block.start || '',
               end: block.end || '',
