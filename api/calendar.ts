@@ -97,12 +97,6 @@ export default async function handler(req: any, res: any) {
   const queryCalendarId = (req.query?.calendarId as string) || (req.headers?.['x-calendar-id'] as string);
   let activeCalendarId = queryCalendarId || process.env.GOOGLE_CALENDAR_ID || DEFAULT_STUDIO_CALENDAR_ID;
 
-  // Profissional para attendees (sem incluir o desenvolvedor/administrador)
-  const professionalEmail = (process.env.PROFESSIONAL_EMAIL || DEFAULT_PROFESSIONAL_EMAIL).trim();
-  const attendeesList = professionalEmail && professionalEmail.toLowerCase() !== DEVELOPER_ADMIN_EMAIL.toLowerCase()
-    ? [{ email: professionalEmail, displayName: 'Studio Gaby Nogueira' }]
-    : undefined;
-
   try {
     // ----------------------------------------------------
     // GET: Buscar eventos (agendamentos e bloqueios)
@@ -459,7 +453,6 @@ export default async function handler(req: any, res: any) {
           description,
           start: { dateTime: startDateTime, timeZone: 'America/Sao_Paulo' },
           end: { dateTime: endDateTime, timeZone: 'America/Sao_Paulo' },
-          attendees: attendeesList,
           reminders: {
             useDefault: false,
             overrides: [
@@ -476,7 +469,7 @@ export default async function handler(req: any, res: any) {
               phone: booking.phone,
               price: String(booking.price),
               status: booking.status,
-              date: booking.date,
+              date: brazilianDate,
               time: booking.time,
             },
           },
@@ -487,7 +480,6 @@ export default async function handler(req: any, res: any) {
           insertedEvent = await calendar.events.insert({
             calendarId: activeCalendarId,
             requestBody: insertPayload,
-            sendUpdates: 'all',
           });
         } catch (insertErr: any) {
           console.warn("Standard insert failed, falling back to clean insert:", insertErr?.message || insertErr);
@@ -496,7 +488,6 @@ export default async function handler(req: any, res: any) {
             description,
             start: { dateTime: startDateTime, timeZone: 'America/Sao_Paulo' },
             end: { dateTime: endDateTime, timeZone: 'America/Sao_Paulo' },
-            attendees: attendeesList,
             reminders: {
               useDefault: false,
               overrides: [
@@ -511,7 +502,6 @@ export default async function handler(req: any, res: any) {
             insertedEvent = await calendar.events.insert({
               calendarId: DEFAULT_STUDIO_CALENDAR_ID,
               requestBody: fallbackPayload,
-              sendUpdates: 'all',
             });
           } catch (cleanErr: any) {
             console.error("Clean insert fallback failed:", cleanErr?.message || cleanErr);
@@ -645,7 +635,6 @@ export default async function handler(req: any, res: any) {
           description,
           start: { dateTime: startDateTime, timeZone: 'America/Sao_Paulo' },
           end: { dateTime: endDateTime, timeZone: 'America/Sao_Paulo' },
-          attendees: attendeesList,
           reminders: {
             useDefault: false,
             overrides: [
@@ -673,7 +662,6 @@ export default async function handler(req: any, res: any) {
             calendarId: activeCalendarId,
             eventId: targetEventId,
             requestBody: updatePayload,
-            sendUpdates: 'all',
           });
         } catch (updateErr: any) {
           console.warn(`Update for event ${targetEventId} failed (${updateErr?.message || updateErr}), attempting upsert/insert...`);
@@ -685,7 +673,6 @@ export default async function handler(req: any, res: any) {
             await calendar.events.insert({
               calendarId: activeCalendarId,
               requestBody: insertPayload,
-              sendUpdates: 'all',
             });
           } catch (insErr: any) {
             console.warn("Upsert with id failed, retrying insert without id:", insErr?.message || insErr);
@@ -693,7 +680,6 @@ export default async function handler(req: any, res: any) {
               await calendar.events.insert({
                 calendarId: activeCalendarId,
                 requestBody: updatePayload,
-                sendUpdates: 'all',
               });
             } catch (finalErr: any) {
               console.error("All update/insert attempts failed:", finalErr?.message || finalErr);
@@ -702,7 +688,6 @@ export default async function handler(req: any, res: any) {
                   await calendar.events.insert({
                     calendarId: DEFAULT_STUDIO_CALENDAR_ID,
                     requestBody: updatePayload,
-                    sendUpdates: 'all',
                   });
                 } catch (defErr) {
                   console.error("Default studio calendar insert also failed:", defErr);

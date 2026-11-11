@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { CheckCircle, X, Plus, Copy, Upload, Image as ImageIcon, Loader2 } from 'lucide-react';
+import { toast } from 'sonner';
 
 type ServiceType = typeof SERVICES[0];
 
@@ -286,10 +287,60 @@ const BookingSection = () => {
 
     setIsSubmitting(true);
 
-    // 1. Salva imediatamente no banco local
-    addBooking(booking);
+    // 1. Grava diretamente e prioritariamente no Google Calendar
+    let eventId = '';
+    try {
+      let res = await fetch('/api/calendar', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          type: 'booking',
+          booking,
+          duration: totalDuration,
+        }),
+      });
 
-    // 2. Prepara mensagem para o WhatsApp com link oficial do comprovante ou fallback não-bloqueante
+      if (res.status === 409) {
+        const conflictData = await res.json().catch(() => ({}));
+        setIsSubmitting(false);
+        setShowPixModal(false);
+        toast.error(conflictData.message || 'Este horário acabou de ser agendado por outra cliente. Por favor, escolha outro horário.');
+        setStep(3);
+        return;
+      }
+
+      if (!res.ok) {
+        console.warn('Initial calendar POST failed, retrying once...');
+        res = await fetch('/api/calendar', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            type: 'booking',
+            booking,
+            duration: totalDuration,
+          }),
+        });
+      }
+
+      if (res.ok) {
+        const resData = await res.json().catch(() => ({}));
+        if (resData.eventId) {
+          eventId = resData.eventId;
+        }
+      }
+    } catch (calendarErr) {
+      console.warn("Calendar API sync warning:", calendarErr);
+    }
+
+    // 2. Salva localmente com o googleEventId
+    const finalBooking = eventId ? { ...booking, googleEventId: eventId } : booking;
+    addBooking(finalBooking);
+
+    // 3. Prepara mensagem para o WhatsApp com link oficial do comprovante
     let msg = `✨ *STUDIO GABY NOGUEIRA* ✨\n\nOlá Gaby! 🌸\nMeu nome é *${booking.name}*.\nMeu agendamento foi realizado pelo site:\n\n📋 *Serviço:* ${booking.service}\n💰 *Valor Total:* R$ ${booking.price},00\n📅 *Data:* ${booking.date}\n🕐 *Horário:* ${booking.time}\n📱 *Meu WhatsApp:* ${booking.phone}\n\n💵 *Sinal Pago:* R$ ${SINAL_VALUE},00`;
 
     if (comprovanteUrl) {
@@ -302,37 +353,24 @@ const BookingSection = () => {
 
     const zapUrl = generateWhatsAppUrl(WHATSAPP_NUMBER, msg);
 
-    // 3. Sincroniza com Google Calendar aguardando até 2.5s com keepalive: true
-    try {
-      const calendarPromise = fetch('/api/calendar', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          type: 'booking',
-          booking,
-          duration: totalDuration,
-        }),
-        keepalive: true,
-      });
-
-      const timeoutPromise = new Promise((resolve) => setTimeout(resolve, 2500));
-      await Promise.race([calendarPromise, timeoutPromise]);
-    } catch (err) {
-      console.warn("Background Google Calendar sync error:", err);
-    }
-
-    // 4. Conclui o fluxo e abre o WhatsApp
+    // 4. Conclui o fluxo e exibe confirmação
     setLastZapUrl(zapUrl);
     setIsSubmitting(false);
     setShowPixModal(false);
     setShowSuccess(true);
 
     try {
-      window.location.href = zapUrl;
+      const win = window.open(zapUrl, '_blank');
+      if (!win) {
+        setTimeout(() => {
+          window.location.href = zapUrl;
+        }, 1200);
+      }
     } catch (e) {
       console.warn("Auto-redirect to WhatsApp error:", e);
+      setTimeout(() => {
+        window.location.href = zapUrl;
+      }, 1200);
     }
 
     // 5. Limpa os campos do formulário
@@ -546,7 +584,7 @@ const BookingSection = () => {
                     className="pointer-events-auto"
                   />
                   <p className="text-xs text-muted-foreground mt-3 px-2 uppercase tracking-widest text-center">
-                    Segunda a Sábado • Domingo Fechado
+                    Dias disponíveis destacados no calendário
                   </p>
                 </div>
               </motion.div>

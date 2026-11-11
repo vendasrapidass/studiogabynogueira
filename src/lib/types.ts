@@ -75,7 +75,16 @@ export function isOpenNow(): boolean {
 }
 
 export function isDayAllowed(date: Date): boolean {
-  return date.getDay() !== 0; // Fechado aos Domingos
+  const day = date.getDay();
+  if (day === 0) return false; // Fechado aos Domingos
+
+  const isDecember = date.getMonth() === 11; // Dezembro (mês 11 em JS)
+  // Segundas fora de Dezembro são fechadas para agendamento público (Gaby tem Aula)
+  if (!isDecember && day === 1) {
+    return false;
+  }
+
+  return true;
 }
 
 export function getTimesForDate(date: Date): string[] {
@@ -93,13 +102,18 @@ export function getTimesForDate(date: Date): string[] {
     return ['08:00', '11:00', '14:00', '17:00', '19:30'];
   }
 
-  // Demais meses (ex: Novembro) - Horários normais (apenas 3 atendimentos por dia)
+  // Demais meses (ex: Novembro) - Horários normais
+  // Segundas-feiras normais fora de Dezembro: Fechado (Gaby tem Aula)
+  if (day === 1) {
+    return [];
+  }
+
   // Sábados normais: 08:30, 12:30 e 15:30
   if (day === 6) {
     return ['08:30', '12:30', '15:30'];
   }
 
-  // Segunda a Sexta normais: 08:00, 14:00 e 17:00
+  // Terça a Sexta normais: apenas 3 atendimentos por dia (08:00, 14:00 e 17:00)
   return ['08:00', '14:00', '17:00'];
 }
 
